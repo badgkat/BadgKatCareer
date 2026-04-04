@@ -68,6 +68,11 @@
 		{ "name": "CrewRandR" },
 		{ "name": "BetterAstronautComplexContinued" },
 		{ "name": "ResearchBodies" },
+		{ "name": "KerbalGenerations" },
+
+		{ "name": "Sandcastle" },
+		{ "name": "SimpleConstruction" },
+		{ "name": "KSPPartVolume" },
 
 		{ "name": "RemoteTechRedev" },
 		{ "name": "CommNetAntennasExtension" },
