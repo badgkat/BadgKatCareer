@@ -1,0 +1,8 @@
+Contract Pack: Anomaly Surveyor
+Original Author: nightingale (jrossignol)
+License: CC BY-NC-SA 4.0
+Original Repository: https://github.com/jrossignol/ContractPack-AnomalySurveyor
+SCANsat Fix: gabes-ksp-fixes (https://github.com/gabes-ksp-fixes/ContractPack-AnomalySurveyor-Fixed)
+
+Bundled in BadgKatCareer with version file updated for KSP 1.12.x compatibility.
+Distributed under the same CC BY-NC-SA 4.0 license as the original.
