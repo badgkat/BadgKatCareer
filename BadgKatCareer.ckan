@@ -68,6 +68,7 @@
 		{ "name": "CrewRandR" },
 		{ "name": "BetterAstronautComplexContinued" },
 		{ "name": "ResearchBodies" },
+		{ "name": "KerbalStats" },
 		{ "name": "KerbalGenerations" },
 
 		{ "name": "Sandcastle" },
