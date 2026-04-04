@@ -1,0 +1,5 @@
+# KSP generated files
+*.craft
+*.sfs
+*.loadmeta
+thumbs/
