@@ -70,6 +70,7 @@
 		{ "name": "ResearchBodies" },
 		{ "name": "KerbalStats" },
 		{ "name": "KerbalGenerations" },
+		{ "name": "KerbalAcademy" },
 
 		{ "name": "Sandcastle" },
 		{ "name": "SimpleConstruction" },
