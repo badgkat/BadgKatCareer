@@ -76,6 +76,9 @@
 		{ "name": "SimpleConstruction" },
 		{ "name": "KSPPartVolume" },
 
+		{ "name": "RealChute" },
+		{ "name": "G-Effects" },
+
 		{ "name": "RemoteTechRedev" },
 		{ "name": "CommNetAntennasExtension" },
 		{ "name": "CommNetAntennasInfo" },
