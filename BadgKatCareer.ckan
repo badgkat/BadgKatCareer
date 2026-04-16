@@ -14,11 +14,11 @@
 		{ "name": "CommunityTechTree" },
 		{ "name": "CommunityResourcePack" },
 		{ "name": "CommunityCategoryKit" },
-		{ "name": "CommunityPartsTitles" },
 		{ "name": "B9PartSwitch" },
 		{ "name": "HarmonyKSP" },
 		{ "name": "ResearchBodies" },
 		{ "name": "ContractConfigurator" },
+		{ "name": "ChatterBox" },
 		{ "name": "Snacks" }
 	],
 
@@ -45,6 +45,14 @@
 
 		{ "name": "StationPartsExpansionRedux" },
 		{ "name": "StationPartsExpansionRedux-IVAs" },
+		{ "name": "ReStockPlus" },
+		{ "name": "MarkIVSystem" },
+		{ "name": "Firefly" },
+		{ "name": "FelineUtilityRovers" },
+		{ "name": "MiningExpansion" },
+		{ "name": "RationalResources" },
+		{ "name": "TheOutpost" },
+		{ "name": "JX2Antenna" },
 
 		{ "name": "Kopernicus" },
 		{ "name": "OuterPlanetsMod" },
@@ -52,61 +60,59 @@
 		{ "name": "KcalbelohSystem" },
 
 		{ "name": "MechJeb2" },
-		{ "name": "KerbalEngineerRedux" },
-		{ "name": "Astrogator" },
 		{ "name": "Trajectories" },
+		{ "name": "TransferWindowPlannerFork" },
 		{ "name": "BetterTimeWarp" },
 		{ "name": "EasyVesselSwitch" },
-		{ "name": "SpeedUnitAnnex" },
+		{ "name": "xScienceContinued" },
 
 		{ "name": "SCANsat" },
 		{ "name": "CrowdSourcedScience" },
-		{ "name": "ScienceAlert" },
 		{ "name": "TarsierSpaceTechnology" },
 		{ "name": "WhereCanIGo" },
 
 		{ "name": "CrewRandR" },
-		{ "name": "BetterAstronautComplexContinued" },
-		{ "name": "KerbalStats" },
+		{ "name": "EnhancedAstronautComplex" },
 		{ "name": "KerbalGenerations" },
-		{ "name": "Sandcastle" },
+		{ "name": "KerbalsGetOld" },
 		{ "name": "SimpleConstruction" },
 		{ "name": "KSPPartVolume" },
 
+		{ "name": "FerramAerospaceResearchContinued" },
 		{ "name": "RealChute" },
 		{ "name": "G-Effects" },
 
-		{ "name": "CommNetAntennasExtension" },
+		{ "name": "CommNetAntennasConsumptor" },
 		{ "name": "CommNetAntennasInfo" },
-		{ "name": "JX2Antenna" },
 
 		{ "name": "FreeIva" },
 		{ "name": "DEIVAExtension" },
 		{ "name": "RasterPropMonitor-Core" },
-		{ "name": "MOARdVPlus" },
 		{ "name": "Reviva" },
 		{ "name": "ASET-Props" },
 		{ "name": "ThroughTheEyes" },
+		{ "name": "VexarpIVA" },
+		{ "name": "ProbeControlRoomRecontrolled" },
 
 		{ "name": "KerbalKonstructs" },
 		{ "name": "KerbinSideRemastered" },
+		{ "name": "BonVoyage" },
+		{ "name": "WalkAbout" },
+		{ "name": "BackgroundResourceProcessing" },
+		{ "name": "FinalFrontier" },
 
 		{ "name": "KerbalJointReinforcement-Continued" },
 		{ "name": "KSPCommunityFixes" },
 		{ "name": "VABOrganizer" },
+		{ "name": "JanitorsCloset" },
+		{ "name": "PartCommanderCont" },
 		{ "name": "ClickThroughBlocker" },
 		{ "name": "ToolbarController" },
 		{ "name": "HideEmptyTechTreeNodes" },
 		{ "name": "TrackingStationEvolved" },
 		{ "name": "WaypointManager" },
 		{ "name": "CustomBarnKit" },
-		{ "name": "CustomPreLaunchChecks" },
-
-
-		{ "name": "MarkIVSystem" },
-		{ "name": "Firefly" },
-		{ "name": "MiningExpansion" },
-		{ "name": "RationalResources" }
+		{ "name": "CustomPreLaunchChecks" }
 	],
 
 	"suggests": [
@@ -122,10 +128,12 @@
 		{ "name": "StockWaterfallEffects" },
 		{ "name": "RestockWaterfallExpansion" },
 		{ "name": "ReStock" },
-		{ "name": "ReStockPlus" },
 		{ "name": "RocketSoundEnhancement" },
 		{ "name": "TextureReplacer" },
 		{ "name": "PoodsSkyboxes" },
-		{ "name": "Chatterer" }
+		{ "name": "Chatterer" },
+		{ "name": "TUFX" },
+		{ "name": "Deferred" },
+		{ "name": "Singularity" }
 	]
 }
