@@ -1,6 +1,25 @@
-# BadgKatDirector — Administration Building Redesign
+# BadgKatDirector + BadgKatCareer — Admin Building & Campaign Integration
 
-Replace the stock Administration Building strategy system with a character-driven program management layer. The six BadgKatCareer cast members live in the admin building, react to the player's decisions, and drive the campaign forward through dialogue, choices, and mechanical effects.
+Replace the stock Administration Building strategy system with a character-driven program management layer. This spec covers two mods: a generic framework (**BadgKatDirector**) and the specific campaign content that uses it (**BadgKatCareer**).
+
+## Architecture: Three-Mod Split
+
+The work splits into three independently valuable mods:
+
+| Mod | Role | Content | Consumers |
+|---|---|---|---|
+| **KerbalDialogueKit** | Dialogue infrastructure | None (library) | Any mod wanting character dialogue |
+| **BadgKatDirector** | Admin building + economy framework | Generic framework | Any career wanting character-driven admin |
+| **BadgKatCareer** | Story, characters, contracts | Campaign content | The BadgKat playthrough |
+
+Dependency chain:
+
+```
+BadgKatCareer ─┬─→ BadgKatDirector ─→ KerbalDialogueKit ─→ ChatterBox
+               └─→ KerbalDialogueKit (directly, for contract dialogue)
+```
+
+**KerbalDialogueKit** is specified separately in `2026-04-18-dialogue-kit-design.md`. This spec focuses on the Director framework and Career content.
 
 ## Vision
 
@@ -11,19 +30,24 @@ Two layers of interaction:
 - **Day-to-day (A-layer):** Soft, low-pressure. Set character focuses, read memos, pick up story contracts. Change anytime. Effects are gentle nudges on contract weights and crew bonuses.
 - **Milestone directives (B-layer):** Weighty, permanent. At ~9 act transitions across the campaign, two characters argue and you pick a direction. Effects lock in for the chapter: unique contracts spawn, bonuses apply, the narrative branches. Both paths are fun — the choice is lateral, not "right vs wrong."
 
-Target audience: same smart 12-year-old. Management should feel like running a scrappy space program, not optimizing a spreadsheet.
+Target audience: same smart 12-year-old as the rest of BadgKatCareer. Management should feel like running a scrappy space program, not optimizing a spreadsheet.
 
 ## Dependencies
 
+**BadgKatDirector:**
+- KerbalDialogueKit (our dialogue library)
 - ContractConfigurator >= 2.12.0
-- ChatterBox >= 1.0.0 (rendering pipeline, see Dialogue Strategy section)
 - CustomBarnKit (admin building UI, facility-level gating)
-- All BadgKatCareer contract packs
-- Unity/KSP 1.12.x modding libraries
+- KSP 1.12.x modding libraries
+
+**BadgKatCareer:**
+- BadgKatDirector
+- KerbalDialogueKit
+- All existing contract pack dependencies (ResearchBodies, Snacks, KerbinSideRemastered, etc.)
 
 ## Architecture Overview
 
-Three-layer architecture designed for iterative expansion:
+Three-layer architecture within BadgKatDirector designed for iterative expansion:
 
 ```
 ┌─────────────────────────────────────────┐
@@ -48,36 +72,30 @@ Narrow ships first. Medium and wide add new effect types and UI surfaces on the 
 
 ---
 
+# Part 1: BadgKatDirector (Framework)
+
+Generic, content-free. Defines the system. A modder could ship their own cast and directives on top of this.
+
 ## Core Data Model
 
 ### Character State
 
-Each of the six characters has persistent state in the save file:
+Each character has persistent state in the save file:
 
 | Field | Type | Purpose |
 |---|---|---|
-| `name` | string | Gene, Wernher, Gus, Mortimer, Walt, Linus |
+| `id` | string | Unique identifier (e.g., "gene", "wernher") |
+| `displayName` | string | "Gene Kerman" |
 | `disposition` | enum | Enthusiastic, Supportive, Neutral, Skeptical, Frustrated |
 | `lastChoiceSided` | bool | Did the player back them in the last milestone directive? |
 | `focusTag` | string (nullable) | Current A-layer focus assignment |
 | `memory[]` | list | Notable choices this character cares about, for dialogue callbacks |
 
-**Disposition is not morale.** It is a narrative state, not a number to optimize. It affects dialogue tone and which contracts a character advocates for. A Frustrated Wernher still does science — he grumbles about it and doesn't volunteer bonus missions. An Enthusiastic Gus proactively offers infrastructure contracts.
+Character definitions (id, display name, portrait model, color) are loaded from `DIRECTOR_CHARACTER` cfg nodes supplied by consumer mods.
+
+**Disposition is not morale.** It is a narrative state, not a number to optimize. It affects dialogue tone (via KerbalDialogueKit flag system) and which contracts a character advocates for. A Frustrated Wernher still does science — he grumbles about it and doesn't volunteer bonus missions. An Enthusiastic Gus proactively offers infrastructure contracts.
 
 Disposition decays toward Neutral over time (measured in contracts completed, not real time). No death spiral — completing missions in a character's domain pulls them back. They are professionals.
-
-### Character-Building Mapping
-
-| Character | Domain | Natural Building |
-|---|---|---|
-| Gene | Mission direction, crew safety | Administration, Mission Control |
-| Wernher | Science, anomaly research | R&D |
-| Gus | Engineering, infrastructure | VAB/SPH |
-| Mortimer | Budget, finance | Administration |
-| Walt | PR, reputation, recruitment | Astronaut Complex |
-| Linus | Anomaly signals, tracking | Tracking Station, Observatory |
-
-Gene and Linus span two buildings each. Not every building needs a unique character — some characters have more authority than others.
 
 ### Choice History
 
@@ -88,7 +106,7 @@ ChoiceHistory
 │   ├── choiceId
 │   ├── backedCharacter
 │   └── timestamp
-├── activeStances{}        // A-layer: current lightweight focuses
+├── activeFocuses{}        // A-layer: current lightweight focuses
 │   ├── key (e.g., "wernher_focus")
 │   └── value (e.g., "deep_space_signals")
 └── contractsOriginated[]  // story contracts spawned from admin building
@@ -108,17 +126,13 @@ IDirectorEffect
 └── GetAvailableContracts() → list
 ```
 
----
-
 ## The Reputation Economy
 
-Reputation represents the public's confidence in the space program. Walt's obsession, Mortimer's funding source, the ceiling on the program's ambition.
+Reputation represents the public's confidence in the space program. Three functions, one number.
 
-### Three Functions, One Number
+### Passive Income
 
-**1. Funding Pipeline (always on)**
-
-Reputation drives passive income at regular intervals (~30 days, configurable). This supplements contract payouts as a steady funding source.
+Reputation drives passive income at regular intervals (~30 days, configurable). Supplements contract payouts as a steady funding source.
 
 | Rep Range | Tier | Passive Income/Month | Feel |
 |---|---|---|---|
@@ -128,37 +142,34 @@ Reputation drives passive income at regular intervals (~30 days, configurable). 
 | 500–750 | Prestigious | ~60,000 | Major program |
 | 750+ | Legendary | ~100,000 | Money isn't the problem |
 
-Numbers are illustrative — tuned in playtesting.
+Numbers are illustrative — tuned in playtesting. The framework supports configurable tiers via cfg.
 
-**2. Ambition Gate (at story beats)**
+### Ambition Gates
 
-Certain milestone directives and story contracts require minimum reputation. Always transparent — Walt tells the player in the admin building:
+Certain milestone directives and story contracts require minimum reputation. Always transparent — the framework provides a "next gate" API that consumer UIs display to the player:
 
-> "We need at least 300 reputation before we can sell a crewed Duna mission to the public. We're at 260. A successful Mun investigation or a flashy first would put us over."
+> "We need at least 300 reputation before we can sell a crewed Duna mission to the public. We're at 260."
 
-The player always knows: what the next gate is, where they stand, what actions would help. Gates are set generously — normal play reaches them naturally. They only bite after significant failures.
+Gates are set generously — normal play reaches them naturally. They bite only after significant failures.
 
-**3. Risk Budget (on ambitious missions)**
+### Risk Stakes
 
-High-profile missions stake reputation. Before launch, the player sees the stakes. Success gains rep; failure costs it.
+High-profile missions stake reputation. Success gains; failure costs. The framework provides a `ReputationStake` effect that tags contracts with risk/reward amounts. Consumer content decides which contracts stake rep and how much.
 
-- Walt's assessment appears in briefing dialogue
-- Risk scales with ambition (routine resupply stakes nothing, crewed Duna landing stakes a lot)
+- Risk scales with ambition
 - Failures aren't game-ending but sting — income dips, may delay the next gate
 - Recovery always possible through successful missions
 
 ### Reputation Decay
 
-Reputation decays slowly over time (~1–2% per month) to prevent coasting. This encourages concurrent missions — while a Duna probe is in transit, the player runs aviation milestones, Mun anomalies, station resupply to stay relevant.
+Reputation decays slowly over time (~1–2% per month) to prevent coasting. Encourages concurrent missions — while a Duna probe is in transit, the player runs aviation milestones, Mun anomalies, station resupply to stay relevant.
 
 Safeguards:
 - **Tier floors:** Once you cross a tier threshold, you can never decay below the previous tier's floor. Landing on Duna means you can't become a nobody.
-- **Activity resets the clock:** Completing any contract resets the decay timer. Active programs don't decay.
-- **Walt can help:** If rep is decaying, Walt offers a "PR campaign" action — costs funds, halts decay for a period. Spending money to stay relevant.
+- **Activity resets the clock:** Completing any contract resets the decay timer.
+- **PR campaign action:** A consumer-defined action (e.g., Walt's "PR campaign" in BadgKatCareer) costs funds and halts decay for a period.
 
----
-
-## The Admin Building Experience
+## The Admin Building UI
 
 ### Building Roles
 
@@ -167,7 +178,7 @@ The admin building and Mission Control have distinct purposes:
 - **Admin Building:** "What are we doing next?" — narrative, choices, character scenes, story contract origination
 - **Mission Control:** "What do I need to do?" — contract details, parameters, tracking, radiant contracts
 
-Story contracts (Tier 1, some Tier 2) originate in the admin building. The player accepts them through character scenes. They then appear in Mission Control as already-active for reference. Radiant contracts (station resupply, crew rotation, biome surveys) stay in Mission Control exclusively.
+Story contracts originate in the admin building. The player accepts them through character scenes. They appear in Mission Control as already-active for reference. Radiant contracts stay in Mission Control exclusively.
 
 ### UI Layout
 
@@ -177,27 +188,25 @@ Story contracts (Tier 1, some Tier 2) originate in the admin building. The playe
 │              │                          │                 │
 │  [Gene]      │  Program Status          │  Story Contracts│
 │  Supportive  │  ───────────────         │  ─────────────  │
-│              │  Act 3: "Something       │  ☐ Mun Probe    │
-│  [Wernher]   │   on the Mun"           │    (Wernher)    │
-│  Enthusiastic│                          │                 │
-│              │  Reputation: 312         │  ☐ Mun Anomaly  │
-│  [Gus]       │  ████████░░ Respected    │    (Linus)      │
-│  Neutral     │  Monthly Income: 32,000  │                 │
-│              │  Next Gate: 400          │                 │
-│  [Mortimer]  │   (Crewed Interplanetary)│  Memos          │
-│  Neutral     │                          │  ─────────────  │
-│              │  Active Effects          │  Gus: relay     │
-│  [Walt]      │  ───────────────         │     aging       │
-│  Supportive  │  • Science +15% (Mun)   │  Walt: need     │
-│              │  • Probe contracts +30%  │     a headline  │
+│              │  Current Chapter: 3      │  ☐ Mun Probe    │
+│  [Wernher]   │                          │    (Wernher)    │
+│  Enthusiastic│  Reputation: 312         │                 │
+│              │  ████████░░ Respected    │  ☐ Mun Anomaly  │
+│  [Gus]       │  Monthly Income: 32,000  │    (Linus)      │
+│  Neutral     │  Next Gate: 400          │                 │
+│              │                          │  Memos          │
+│  [Mortimer]  │  Active Effects          │  ─────────────  │
+│  Neutral     │  ───────────────         │  Gus: relay     │
+│              │  • Science +15% (Mun)   │     aging       │
+│  [Walt]      │  • Probe contracts +30%  │  Walt: need     │
+│  Supportive  │                          │     a headline  │
+│              │                          │                 │
 │  [Linus]     │                          │                 │
 │  Enthusiastic│                          │                 │
 └──────────────┴──────────────────────────┴─────────────────┘
 ```
 
-- **Left panel:** Character portraits with disposition shown as facial expression/animation
-- **Center panel:** Active scene or status dashboard
-- **Right panel:** Pending story contracts and character memos
+The UI is framework-provided. Content (character names, focus options, memos, directive text) comes from consumer cfg files.
 
 ### Three Interaction Modes
 
@@ -206,27 +215,27 @@ Story contracts (Tier 1, some Tier 2) originate in the admin building. The playe
 No pending events. The dashboard appears. The player can:
 
 - **Check the board.** Current focuses and their effects.
-- **Shift focus.** Click a character, pick from 2–3 contextual focus options. Options change as the campaign progresses — new ones unlock, old ones can disappear.
-- **Read memos.** Short character notes generated from game state templates. Informational, not mandatory. Point toward available contracts and opportunities.
-- **Pick up story contracts.** Unlocked story contracts appear on the desk. Clicking one triggers a short character pitch scene. Accept to activate, or leave it for next visit.
+- **Shift focus.** Click a character, pick from available focus options (defined by consumer content). Options change as the campaign progresses.
+- **Read memos.** Short character notes generated from game state templates.
+- **Pick up story contracts.** Unlocked story contracts appear on the desk. Clicking one triggers a short character pitch scene via KerbalDialogueKit. Accept to activate, or leave for next visit.
 
-Focus effects are real but gentle: contract weight modifiers (+30% more of a type), small crew XP bonuses, minor cost adjustments. No wrong setting — just "what do you want more of right now."
+Focus effects are real but gentle: contract weight modifiers, small crew XP bonuses, minor cost adjustments. No wrong setting.
 
 **2. Staff Meeting (triggered by game state)**
 
-At certain thresholds — returning from a major mission, discovering a body, completing an act milestone — the admin building flags a pending meeting (visual indicator on the KSC building).
+At thresholds defined by consumer content — returning from a major mission, discovering a body, completing an act — the admin building flags a pending meeting.
 
-The meeting is a ChatterBox scene: 2–4 characters, 4–8 lines, reacting to what just happened. At the end, one or more of:
+The meeting is a KerbalDialogueKit scene. At the end, one or more of:
 - New focus options unlock
 - A story contract appears on the desk
 - Character dispositions shift
-- Two characters propose competing next steps (soft A-layer effect, not a locked commitment)
+- Two characters propose competing next steps (soft A-layer effect)
 
-No permanent choice required. These are the "your organization has opinions" moments.
+No permanent choice required.
 
-**3. Milestone Directive (B-layer, ~9 across the campaign)**
+**3. Milestone Directive (B-layer)**
 
-At act transitions, a major scene plays. Two characters argue. The scene builds to a fork. The dialogue pauses and choice cards appear:
+At act transitions (triggers defined by consumer content), a major scene plays. Two characters argue. The scene builds to a fork. KerbalDialogueKit's ChoiceOverlay presents cards:
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -256,13 +265,256 @@ At act transitions, a major scene plays. Two characters argue. The scene builds 
 └─────────────────────────────────────────────────┘
 ```
 
-**Mechanical effects are shown transparently.** The player knows exactly what they gain. Narrative effects (how characters treat you later, which dialogue variants fire) are hidden — that is the fun part.
+Mechanical effects are shown transparently. Narrative effects (how characters treat you later, which dialogue variants fire) are hidden.
 
-After choosing, a short closing scene plays. The backed character reacts positively. The opposed character reacts in-character (Wernher sulks scientifically, Gus grumbles practically, Mortimer calculates the cost aloud).
+After choosing, a short closing scene plays. The backed character reacts positively. The opposed character reacts in-character.
 
-**The other path is not destroyed.** Contracts from the unchosen path don't appear as story contracts, but some content may still be available as radiant contracts in Mission Control. The player missed the narrative version, not the gameplay entirely.
+Unchosen paths' contracts may still be available as radiant contracts in Mission Control — the player missed the narrative version, not the gameplay entirely.
 
-### Milestone Directive Map
+## Effect Types
+
+All effects implement `IDirectorEffect`. Phase 1 ships with:
+
+### Contract Effects
+- **ContractWeightModifier** — shift probability of contract types appearing
+- **ContractRewardModifier** — multiply rewards for specific types/bodies
+- **StoryContractSpawner** — create CC contracts for the admin building desk
+
+### Economic Effects
+- **FundInjection** — one-time funds bonus on choice
+- **PartCostModifier** — adjust part costs by category
+- **LaunchCostModifier** — adjust vessel rollout costs
+- **ReputationIncome** — passive funding pipeline (always active)
+
+### Crew Effects
+- **CrewXPModifier** — trait-specific XP rate changes
+- **CrewHireCostModifier** — hiring cost adjustments
+- **TraitBonusModifier** — small stat bonuses for a trait
+
+### Progression Effects (Phase 2)
+- **EarlyPartAccess** — unlock specific parts before their tech node
+- **ScienceMultiplier** — bonus science from specific situations/bodies
+
+### Reputation Effects
+- **ReputationStake** — tag high-profile missions with rep risk/reward
+- **ReputationRecovery** — path back after failures
+
+### Narrative Effects
+- **DispositionShift** — move a character's disposition
+- **DialogueBranch** — set KerbalDialogueKit flags (disposition-aware dialogue)
+- **MemoTrigger** — queue a character memo for next admin visit
+
+## C# Plugin Architecture (BadgKatDirector)
+
+Single assembly: `BadgKatDirector.dll`.
+
+```
+BadgKatDirector/
+├── Core/
+│   ├── DirectorScenario.cs        // ScenarioModule — save/load, all state
+│   ├── CharacterState.cs          // Per-character data
+│   ├── CharacterConfigLoader.cs   // Loads DIRECTOR_CHARACTER cfg
+│   ├── ChoiceHistory.cs           // Record of milestone decisions
+│   ├── ReputationEconomy.cs       // Income, decay, gates, stakes
+│   └── DirectorConfig.cs          // Static config from cfg files
+│
+├── Effects/
+│   ├── IDirectorEffect.cs         // Interface all effects implement
+│   ├── ContractWeightModifier.cs
+│   ├── ContractRewardModifier.cs
+│   ├── StoryContractSpawner.cs
+│   ├── FundInjection.cs
+│   ├── PartCostModifier.cs
+│   ├── CrewXPModifier.cs
+│   ├── ReputationStake.cs
+│   └── DispositionShift.cs
+│
+├── Admin/
+│   ├── AdminOverhaul.cs           // KSPAddon — replaces admin building UI
+│   ├── CharacterPanel.cs          // Left panel: portraits + dispositions
+│   ├── ScenePanel.cs              // Center: scene or dashboard
+│   ├── DeskPanel.cs               // Right: pending stories, memos
+│   └── FocusSelector.cs           // Focus option picker
+│
+├── Contracts/
+│   ├── StoryReleaseRequirement.cs // CC REQUIREMENT: admin released?
+│   ├── DirectiveContract.cs       // Contract type for directives
+│   └── ReputationGate.cs          // CC REQUIREMENT: min rep check
+│
+└── Narrative/
+    ├── MemoGenerator.cs           // Game-state-driven character memos
+    ├── StaffMeeting.cs            // Trigger and manage meeting scenes
+    ├── MilestoneDirective.cs      // B-layer choice flow
+    └── DispositionFlagSync.cs     // Syncs character dispositions to
+                                   // KerbalDialogueKit flags
+```
+
+### Consumer-Facing Config Formats
+
+Consumer mods define content through these cfg node types:
+
+**Character definition:**
+```cfg
+DIRECTOR_CHARACTER
+{
+    id = wernher
+    displayName = Wernher von Kerman
+    portraitModel = Instructor_Wernher
+    color = #FF82B4E8
+    role = Chief Scientist
+}
+```
+
+**Directive definition:**
+```cfg
+DIRECTOR_DIRECTIVE
+{
+    id = duna_approach
+    actId = 4
+
+    TRIGGER
+    {
+        type = ContractComplete
+        contract = BKEX_ProbeFlyby_Duna
+    }
+
+    // References a DIALOGUE_SCENE defined via KerbalDialogueKit
+    scene = directive_duna_approach
+
+    CHOICE
+    {
+        id = science_heavy
+        backedCharacter = wernher
+        opposedCharacter = gus
+        EFFECT { type = ContractRewardModifier; body = Duna; scienceMultiplier = 1.4 }
+        EFFECT { type = StoryContractSpawner; contract = BKEX_DunaFullScience }
+        EFFECT { type = DispositionShift; character = wernher; disposition = Enthusiastic }
+        EFFECT { type = DispositionShift; character = gus; disposition = Skeptical }
+    }
+    CHOICE { id = engineering_first; ... }
+    CHOICE { id = compromise; ... }
+}
+```
+
+**Focus definition:**
+```cfg
+DIRECTOR_FOCUS
+{
+    character = wernher
+    id = deep_space_signals
+    title = Deep Space Signals
+    description = Wernher focuses on tracking the anomaly signals.
+
+    REQUIREMENT
+    {
+        type = ContractComplete
+        contract = BKEX_UnmannedOrbit
+    }
+
+    EFFECT { type = ContractWeightModifier; group = AnomalySurveyor; multiplier = 1.3 }
+    EFFECT { type = ScienceMultiplier; situation = InSpaceLow; multiplier = 1.1 }
+}
+```
+
+**Memo template:**
+```cfg
+DIRECTOR_MEMO
+{
+    character = gus
+    id = relay_aging
+    priority = low
+
+    CONDITION
+    {
+        type = VesselAge
+        vesselType = Relay
+        minAge = 200
+    }
+
+    text = That relay is getting old. Might want to think about upgrades before something breaks.
+}
+```
+
+### Facility-Level Gating (CustomBarnKit)
+
+| Admin Level | Features |
+|---|---|
+| 1 | Basic focus system, story contract desk, memos |
+| 2 | Staff meetings unlock, reputation dashboard visible |
+| 3 | Full milestone directives, all effects available |
+
+Gives the player a reason to upgrade the admin building early.
+
+### Save File Structure
+
+```cfg
+SCENARIO
+{
+    name = BadgKatDirector
+    scene = 7, 8, 5
+
+    CHARACTER
+    {
+        id = gene
+        disposition = Supportive
+        lastChoiceSided = true
+        focusTag = crew_safety
+        MEMORY { choiceId = duna_directive; sided = true; timestamp = 1847293 }
+    }
+    // ... other characters
+
+    CHOICE_HISTORY
+    {
+        MILESTONE
+        {
+            actId = 4
+            choiceId = duna_directive
+            backedCharacter = gus
+            timestamp = 1847293
+        }
+    }
+
+    REPUTATION_ECONOMY
+    {
+        lastIncomeTime = 1900000
+        lastDecayTime = 1890000
+        decayFloor = 250
+        highestTierReached = 3
+    }
+
+    PENDING_STORIES
+    {
+        contractId = BKEX_ProbeFlyby_Duna
+        originatedBy = wernher
+        released = false
+    }
+}
+```
+
+---
+
+# Part 2: BadgKatCareer (Content)
+
+All the story-specific content that plugs into BadgKatDirector. This is the existing mod — we add new content files but keep all existing contract packs and dialogue.
+
+## The Cast
+
+Six characters defined via `DIRECTOR_CHARACTER` nodes in `BadgKatCareer/DirectorContent/Characters.cfg`:
+
+| Character | Domain | Natural Building | Portrait |
+|---|---|---|---|
+| Gene | Mission direction, crew safety | Administration, Mission Control | Instructor_Gene |
+| Wernher | Science, anomaly research | R&D | Instructor_Wernher |
+| Gus | Engineering, infrastructure | VAB/SPH | Strategy_MechanicGuy |
+| Mortimer | Budget, finance | Administration | Strategy_Mortimer |
+| Walt | PR, reputation, recruitment | Astronaut Complex | Strategy_PRGuy |
+| Linus | Anomaly signals, tracking | Tracking Station, Observatory | Strategy_ScienceGuy |
+
+Gene and Linus span two buildings each. Not every building needs a unique character — some have more authority than others.
+
+## Milestone Directive Map
+
+Nine hand-authored directives across the five-act campaign:
 
 | Act | Trigger | Characters | Choice Axis |
 |---|---|---|---|
@@ -282,7 +534,7 @@ Each directive has 2–3 choices. Both/all paths are viable and fun — the choi
 
 Act 4 transition. Probe data is in. Duna is the next target.
 
-**The scene:**
+**The scene (in KerbalDialogueKit DIALOGUE_SCENE format):**
 
 > **Wernher:** The spectrographic data from our flyby is extraordinary. The signal is strongest near the northern basin. I want a full science package — surface experiments, atmospheric analysis, the works. We land heavy, we learn everything.
 >
@@ -303,282 +555,53 @@ Act 4 transition. Probe data is in. Duna is the next target.
 **Choice C — Compromise ("Do both, smaller"):**
 - Story contracts: Medium lander with some science, no base
 - Effects: +15% science, -10% costs
-- Both → Supportive (not Enthusiastic)
+- Both → Supportive
 
----
+## Character Focus Options
 
-## Effect Types
+~3 focus options per character, evolving through the campaign. Stored in `BadgKatCareer/DirectorContent/Focuses.cfg`.
 
-Effects are the mechanical consequences of choices. Each is a C# class implementing `IDirectorEffect`.
+Examples:
+- **Wernher:** Anomaly Research, Deep Space Signals, Material Science, Biological Sciences (late), Theoretical Physics (endgame)
+- **Gus:** Launch Infrastructure, Surface Operations, Station Engineering, Interplanetary Vehicles (mid-game)
+- **Walt:** Public Outreach, Media Relations, International Partnerships (late)
+- **Mortimer:** Cost Optimization, Investor Relations, Austerity (under rep pressure)
+- **Linus:** Signal Analysis, Body Discovery, Anomaly Cataloging
+- **Gene:** Crew Safety, Mission Pacing, Program Direction
 
-### Contract Effects
-- **ContractWeightModifier** — shift probability of contract types appearing
-- **ContractRewardModifier** — multiply rewards for specific types/bodies
-- **StoryContractSpawner** — create CC contracts for the admin building desk
+## Memo Templates
 
-### Economic Effects
-- **FundInjection** — one-time funds bonus on choice
-- **PartCostModifier** — adjust part costs by category
-- **LaunchCostModifier** — adjust vessel rollout costs
-- **ReputationIncome** — passive funding pipeline (always active, scales with rep)
+~20 game-state-driven character memos. Stored in `BadgKatCareer/DirectorContent/Memos.cfg`. Examples:
 
-### Crew Effects
-- **CrewXPModifier** — trait-specific XP rate changes
-- **CrewHireCostModifier** — hiring cost adjustments
-- **TraitBonusModifier** — small stat bonuses for a trait
+- Gus (relay aging): "That relay over Kerbin is getting old. Might want to think about upgrades before something breaks."
+- Walt (low rep): "Boss, we need a headline. Public interest is fading."
+- Mortimer (low funds): "We can't afford another launch this month unless we complete a contract."
+- Wernher (new body discovered): "The spectrographic data from the telescope is fascinating. I'd love to send a probe."
+- Linus (anomaly signal detected): "I'm picking up signals from the Mun. The pattern matches what we saw on Kerbin."
 
-### Progression Effects
-- **EarlyPartAccess** — unlock specific parts before their tech node. Goes away if the effect is removed unless the player has since researched the node normally.
-- **ScienceMultiplier** — bonus science from specific situations/bodies
+## Staff Meeting Scenes
 
-### Reputation Effects
-- **ReputationStake** — tag high-profile missions with rep risk/reward
-- **ReputationRecovery** — path back after failures (Walt's PR campaign)
+~10–15 triggered scenes reacting to campaign progression. Defined as KerbalDialogueKit DIALOGUE_SCENE nodes in `BadgKatCareer/DirectorContent/StaffMeetings/`.
 
-### Narrative Effects
-- **DispositionShift** — move a character's disposition
-- **DialogueBranch** — set flags that dialogue scenes check
-- **MemoTrigger** — queue a character memo for next admin visit
+Triggers include:
+- First successful orbit
+- First crew return from space
+- First body discovery
+- First anomaly investigation complete
+- Each act transition (in addition to directives)
+- Major failures (crew loss, mission disaster)
 
----
+## Reputation Economy Tuning
 
-## Dialogue Strategy
+Tier thresholds and income rates tuned for BadgKatCareer's pacing:
+- Act 1 typically finishes around rep 100–150 (Established tier)
+- Act 2 at ~250 (Respected)
+- Act 4 at ~500 (Prestigious)
+- Endgame Kcalbeloh at 750+ (Legendary)
 
-### The Problem
+## Walt's PR Campaign Action
 
-ChatterBox handles contract-triggered dialogue well but has limitations for admin building scenes:
-- Tied to contract lifecycle (onAccept, onComplete, onFail) — admin scenes are not contract events
-- No player choice capture — linear dialogue only, no branching mid-scene
-- No callbacks — cannot chain "dialogue ends → effects apply"
-- No branching — cannot select line variants by disposition within a single scene
-- All key classes are `internal sealed` — cannot extend from another assembly
-
-### The Approach
-
-**Option 1 (preferred): PR to ChatterBox** making the rendering pipeline public.
-
-Smallest useful change: make `ScenePopupDefinition`, `ScenePopupController.Enqueue()`, `CharacterConfig`, and `LineConfig` public. This lets any mod build a scene definition in code and queue it for display. ChatterBox's renderer handles portraits, dialogue, audio.
-
-We build **BadgKatDialogue** as an extension layer on top:
-- `DirectorScene` — higher-level wrapper building `ScenePopupDefinition` objects from .cfg, with branching, disposition-aware variants, and choice points
-- `ChoiceOverlay` — custom UI rendering choice cards between dialogue segments
-- `SceneCallback` — event hooks for "scene ended" / "choice made"
-
-**Option 3 (fallback): Fork ChatterBox's rendering code.**
-
-ChatterBox is MIT licensed. If the PR is rejected or slow, fork the rendering code (portrait system, dialogue sequencing, audio) into `BadgKatDialogue.dll`. Same API shape, but public and with extensions baked in.
-
-Both options produce the same API from our plugin's perspective. `BadgKatDialogue` talks to a scene renderer — whether that is ChatterBox-with-public-API or our-own-fork is swappable.
-
-**ChatterBox stays for contract dialogue.** The career overhaul's Tier 1/2 contract scenes continue using ChatterBox BEHAVIOUR nodes. Admin building scenes use BadgKatDialogue. The player does not notice — both show character portraits and dialogue.
-
----
-
-## C# Plugin Architecture
-
-Single assembly: `BadgKatDirector.dll` in `GameData/BadgKatCareer/Plugins/`.
-
-### Class Structure
-
-```
-BadgKatDirector/
-├── Core/
-│   ├── DirectorScenario.cs        // ScenarioModule — save/load, all state
-│   ├── CharacterState.cs          // Per-character data
-│   ├── ChoiceHistory.cs           // Record of milestone decisions
-│   ├── ReputationEconomy.cs       // Income, decay, gates, stakes
-│   └── DirectorConfig.cs          // Static config from .cfg files
-│
-├── Effects/
-│   ├── IDirectorEffect.cs         // Interface all effects implement
-│   ├── ContractWeightModifier.cs
-│   ├── ContractRewardModifier.cs
-│   ├── StoryContractSpawner.cs
-│   ├── FundInjection.cs
-│   ├── PartCostModifier.cs
-│   ├── CrewXPModifier.cs
-│   ├── ReputationStake.cs
-│   └── DispositionShift.cs
-│
-├── Admin/
-│   ├── AdminOverhaul.cs           // KSPAddon — replaces admin building UI
-│   ├── CharacterPanel.cs          // Left panel: portraits + dispositions
-│   ├── ScenePanel.cs              // Center: scene or dashboard
-│   ├── DeskPanel.cs               // Right: pending stories, effects
-│   └── FocusSelector.cs           // Focus option picker
-│
-├── Contracts/
-│   ├── StoryReleaseRequirement.cs // CC REQUIREMENT: admin building released?
-│   ├── DirectiveContract.cs       // Contract type for milestone directives
-│   └── ReputationGate.cs          // CC REQUIREMENT: minimum rep check
-│
-└── Narrative/
-    ├── MemoGenerator.cs           // Game-state-driven character memos
-    ├── StaffMeeting.cs            // Trigger and manage meeting scenes
-    ├── MilestoneDirective.cs      // B-layer choice flow
-    └── DialogueVariant.cs         // Disposition-aware dialogue flags
-```
-
-### Key Classes
-
-**`DirectorScenario` (ScenarioModule):**
-Central hub. Holds all `CharacterState` objects, `ChoiceHistory`, `ReputationEconomy`, pending/released story contracts, and active `IDirectorEffect` instances. Registers for game events: contract completion, vessel recovery, progress milestones, kerbal death.
-
-**`ReputationEconomy`:**
-Manages all three reputation functions:
-- `GetMonthlyIncome(rep)` / `ProcessIncomeTick(time)` — passive funding
-- `GetDecayRate(rep)` / `GetDecayFloor()` / `ProcessDecayTick(time)` — slow decay with tier floors
-- `ResetDecayTimer()` — called on any contract completion
-- `MeetsGate(gateId)` / `GetNextGate()` — ambition gating, what Walt reports
-- `GetMissionStake(vessel)` — risk assessment for high-profile launches
-
-**`AdminOverhaul` (KSPAddon, SpaceCentre):**
-Intercepts the stock admin building screen (similar approach to Strategia's `AdminResizer`). Replaces content with three-panel character-driven layout. Checks for pending staff meetings or milestone directives on open.
-
-**`StoryReleaseRequirement` (CC Requirement):**
-Custom ContractConfigurator REQUIREMENT type added to story contracts:
-```cfg
-REQUIREMENT
-{
-    name = AdminRelease
-    type = StoryRelease
-    contractId = BKEX_ProbeFlyby_Duna
-}
-```
-Returns false until the player accepts through the admin building. Keeps story contracts out of Mission Control until released.
-
-**`MilestoneDirective`:**
-Manages B-layer flow: detects trigger conditions → flags admin building → launches directive scene → captures choice → applies effects → records in history.
-
-### Configuration (Data-Driven)
-
-Directives, focuses, and memos are defined in .cfg files. The C# plugin provides the engine; the .cfg files provide the content.
-
-**Directive definition:**
-```cfg
-DIRECTOR_DIRECTIVE
-{
-    id = duna_approach
-    actId = 4
-
-    TRIGGER
-    {
-        type = ContractComplete
-        contract = BKEX_ProbeFlyby_Duna
-    }
-
-    scene = directive_duna_approach
-
-    CHOICE
-    {
-        id = science_heavy
-        backedCharacter = Wernher
-        opposedCharacter = Gus
-
-        EFFECT
-        {
-            type = ContractRewardModifier
-            body = Duna
-            scienceMultiplier = 1.4
-        }
-        EFFECT
-        {
-            type = StoryContractSpawner
-            contract = BKEX_DunaFullScience
-        }
-        EFFECT
-        {
-            type = DispositionShift
-            character = Wernher
-            disposition = Enthusiastic
-        }
-        EFFECT
-        {
-            type = DispositionShift
-            character = Gus
-            disposition = Skeptical
-        }
-    }
-
-    CHOICE
-    {
-        id = engineering_first
-        backedCharacter = Gus
-        opposedCharacter = Wernher
-        // ... effects
-    }
-
-    CHOICE
-    {
-        id = compromise
-        // ... effects
-    }
-}
-```
-
-**Focus definition:**
-```cfg
-DIRECTOR_FOCUS
-{
-    character = Wernher
-    id = deep_space_signals
-    title = Deep Space Signals
-    description = Wernher focuses on tracking the anomaly signals.
-
-    REQUIREMENT
-    {
-        type = ContractComplete
-        contract = BKEX_UnmannedOrbit
-    }
-
-    EFFECT
-    {
-        type = ContractWeightModifier
-        group = AnomalySurveyor
-        multiplier = 1.3
-    }
-    EFFECT
-    {
-        type = ScienceMultiplier
-        situation = InSpaceLow
-        multiplier = 1.1
-    }
-}
-```
-
-**Memo template:**
-```cfg
-DIRECTOR_MEMO
-{
-    character = Gus
-    id = relay_aging
-    priority = low
-
-    // Conditions use a simplified expression system evaluated by DirectorScenario.
-    // Available queries: vessel counts by type, vessel age, body reach status,
-    // contract completion status, reputation level, character disposition.
-    CONDITION
-    {
-        type = VesselAge
-        vesselType = Relay
-        minAge = 200  // days
-    }
-
-    text = That relay is getting old. Might want to think about upgrades before something breaks.
-}
-```
-
-### Facility-Level Gating (CustomBarnKit)
-
-Admin building features unlock with facility upgrades:
-
-| Level | Features |
-|---|---|
-| 1 | Basic focus system, story contract desk, memos |
-| 2 | Staff meetings unlock, reputation dashboard visible |
-| 3 | Full milestone directives, all effects available |
-
-Gives the player a reason to upgrade the admin building early.
+BadgKatCareer defines the rep decay counter-action: Walt's "PR Campaign" button in the admin building. Costs funds based on current tier, halts decay for 60 days, small rep bump.
 
 ---
 
@@ -586,116 +609,72 @@ Gives the player a reason to upgrade the admin building early.
 
 ### Career Overhaul Compatibility
 
-The career overhaul (anomaly-driven narrative, ChatterBox dialogue, contract progression) provides the foundation. The admin building system layers on top:
+The anomaly-driven career overhaul (separate spec, currently being implemented) provides the contract progression, ChatterBox dialogue on contracts, bridge contracts, and crew recruitment. This Director work layers on top:
 
-- Story contracts gain `StoryRelease` REQUIREMENT — held from Mission Control until the admin building releases them
-- ChatterBox dialogue gains disposition-aware variant lines via `DialogueBranch` flags
-- Contract rewards become modifiable via `CurrencyModifierQuery` (same API Strategia used)
+- Story contracts gain `StoryRelease` REQUIREMENT — held from Mission Control until admin building releases them
+- Contract-triggered ChatterBox scenes gain disposition-aware variant lines via KerbalDialogueKit flags
+- Contract rewards become modifiable via `CurrencyModifierQuery`
 - High-profile contracts gain `ReputationStake` metadata
 
-Existing CC contracts need minimal changes. The integration points are additive REQUIREMENT blocks and optional metadata, not structural rewrites.
+Existing contract cfg files need minimal changes — additive REQUIREMENT blocks and optional metadata, no structural rewrites.
 
 ### Mod Compatibility
 
 **Keep and hook into:**
-- ContractConfigurator — contracts still run on CC
-- ChatterBox — contract dialogue stays on ChatterBox; admin scenes use BadgKatDialogue extension
+- ContractConfigurator — contracts run on CC
+- ChatterBox — contract dialogue stays on ChatterBox (KerbalDialogueKit extends it)
 - CustomBarnKit — UI and facility gating
-- ResearchBodies — Linus's focus options reference discovered bodies
-- Snacks — untouched, still used for life support
+- ResearchBodies — Linus's focuses reference discovered bodies
+- Snacks — untouched
 
 **Replace:**
-- Stock strategies — disabled via MM patch (same approach as Strategia's `StockStrategyDisabler.cfg`)
+- Stock strategies — disabled via MM patch
 
-**No new mod dependencies required for narrow release.**
-
-### Save File Structure
-
-All state persists in a custom SCENARIO module:
-
-```cfg
-SCENARIO
-{
-    name = BadgKatDirector
-    scene = 7, 8, 5
-
-    CHARACTER
-    {
-        name = Gene
-        disposition = Supportive
-        lastChoiceSided = true
-        focusTag = crew_safety
-        MEMORY
-        {
-            choiceId = duna_directive
-            sided = true
-            timestamp = 1847293
-        }
-    }
-    // ... other characters
-
-    CHOICE_HISTORY
-    {
-        MILESTONE
-        {
-            actId = 4
-            choiceId = duna_directive
-            backedCharacter = Gus
-            timestamp = 1847293
-        }
-    }
-
-    REPUTATION_ECONOMY
-    {
-        lastIncomeTime = 1900000
-        lastDecayTime = 1890000
-        decayFloor = 250
-        highestTierReached = 3
-    }
-
-    PENDING_STORIES
-    {
-        contractId = BKEX_ProbeFlyby_Duna
-        originatedBy = Wernher
-        released = false
-    }
-}
-```
+**No new mod dependencies beyond the three-mod split.**
 
 ---
 
 ## Phasing Plan
 
-### Phase 1 — Narrow (ships with career overhaul)
+### Phase 0 — KerbalDialogueKit (foundation)
 
-The admin building itself plus core systems:
+See `2026-04-18-dialogue-kit-design.md`. Must ship before Director. Also useful to the career overhaul for contract dialogue improvements (branching, disposition variants).
 
+### Phase 1 — BadgKatDirector Narrow + BadgKatCareer Initial Content
+
+Core framework and enough content to be playable:
+
+**BadgKatDirector:**
 - `DirectorScenario` with save/load
-- `CharacterState` for all six characters
+- Character system loading from DIRECTOR_CHARACTER cfg
 - `ReputationEconomy` (passive income, decay, gates)
 - `AdminOverhaul` UI replacing stock admin building
 - `StoryReleaseRequirement` for CC integration
-- Character focus system (A-layer)
-- Staff meetings (triggered ChatterBox scenes)
-- Milestone directives (B-layer choices, ~9 across campaign)
-- Memo system (game-state-driven character notes)
-- Story contract desk (accept Tier 1/2 from admin building)
+- Focus system, staff meeting system, milestone directive system (frameworks only)
+- Memo framework with condition types: VesselAge, ContractComplete, ReputationLevel, BodyDiscovered
+- Story contract desk
 - Stock strategy disabler
-- Effect types (Phase 1): ContractWeightModifier, ContractRewardModifier, StoryContractSpawner, FundInjection, PartCostModifier, CrewXPModifier, DispositionShift, DialogueBranch, ReputationStake, ReputationIncome, MemoTrigger
-- BadgKatDialogue extension layer (ChatterBox PR or fork)
+- Phase 1 effects: ContractWeightModifier, ContractRewardModifier, StoryContractSpawner, FundInjection, PartCostModifier, CrewXPModifier, DispositionShift, DialogueBranch, ReputationStake, ReputationIncome, MemoTrigger
 
-**Produces:** A playable admin building that drives the campaign narrative, with real mechanical effects from player choices.
+**BadgKatCareer content:**
+- Character definitions for the six
+- All ~9 milestone directives with full scenes
+- ~18 character focus options
+- ~20 memo templates
+- ~10–15 staff meeting scenes
+- Walt's PR Campaign action config
+- Reputation tier tuning for the campaign
+- Integration REQUIREMENTs added to existing story contracts
 
-### Phase 2 — Medium (extends effects to other systems)
+**Produces:** A playable admin building that drives the BadgKatCareer campaign narrative with real mechanical effects.
 
-Same UI, same data model, new effect types:
+### Phase 2 — Medium (effect types extend to other systems)
 
+Same UI, same data model, new effect types in BadgKatDirector:
 - `EarlyPartAccess` — unlock parts before tech nodes
-- `PartCostModifier` — adjust part costs by category
 - `ScienceMultiplier` — bonus science from situations/bodies
-- `CrewXPModifier` — trait-specific XP rates
-- `CrewHireCostModifier` — hiring cost adjustments
-- `TraitBonusModifier` — crew stat bonuses
+- `CrewHireCostModifier`, `TraitBonusModifier`
+- `ReputationRecovery` (richer than Phase 1 PR campaign)
 - Wernher's focus affects R&D costs
 - Gus's focus affects part availability
 - Linus's focus affects ResearchBodies discovery rates
@@ -703,21 +682,32 @@ Same UI, same data model, new effect types:
 ### Phase 3 — Wide (characters in all buildings)
 
 Same data model, same effects, new UI surfaces:
-
 - Characters appear in "their" buildings (Gus in VAB, Wernher in R&D, Linus in Tracking Station)
 - Per-building UI MonoBehaviours reading from shared character state
-- Building-specific interactions (Gus comments on your rocket design, Wernher highlights interesting experiments)
-- Full KSC feels like visiting an organization, not navigating menus
+- Building-specific interactions
+- Full KSC feels like visiting an organization
 
 ---
 
 ## Scope Summary
 
-- **C# classes:** ~25 (core + effects + UI + contracts + narrative)
-- **Config file types:** 3 (directives, focuses, memos)
-- **Milestone directives:** ~9 hand-authored choice points
-- **Character focus options:** ~3 per character, evolving with campaign progress (~18 total)
-- **Memo templates:** ~15–20 game-state-driven
-- **Staff meeting scenes:** ~10–15 triggered by progression
-- **New CC REQUIREMENT types:** 2 (StoryRelease, ReputationGate)
-- **Phases:** Narrow first (prerequisite), then Medium and Wide in either order
+**BadgKatDirector (framework):**
+- ~25 C# classes
+- 4 config file types (DIRECTOR_CHARACTER, DIRECTOR_DIRECTIVE, DIRECTOR_FOCUS, DIRECTOR_MEMO)
+- 2 new CC REQUIREMENT types (StoryRelease, ReputationGate)
+- No content — pure framework
+
+**BadgKatCareer (content additions):**
+- 6 character definitions
+- ~9 milestone directives + dialogue scenes
+- ~18 focus option definitions
+- ~20 memo templates
+- ~10–15 staff meeting scenes
+- Reputation tier tuning
+- Integration REQUIREMENTs added to ~30 existing story contracts
+
+**Phasing:**
+- Phase 0 (KerbalDialogueKit): Foundation, ships first
+- Phase 1 (Director narrow + Career content): Playable system
+- Phase 2 (Medium effects): Extends reach
+- Phase 3 (Wide UI): Characters in all buildings
