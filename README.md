@@ -18,7 +18,7 @@ KSP is a fun, goofy, bug-filled game. These patches add light complexity to miss
 
 | File | What it does |
 |------|-------------|
-| `EarlyExploration.cfg` | Moves parts to `start` tech node to enable three day-one paths |
+| `EarlyExploration.cfg` | Moves rover parts to `basicRocketry` and plane parts to `engineering101` for campaign-aligned early game |
 | `ContractTweaks.cfg` | Disables stock contracts replaced by our contract packs |
 | `FuelNames.cfg` | Renames resource display names (LiquidFuel → Kerbosene, etc.) |
 | `SnacksIntegration.cfg` | Adds Soil Recyclers/Snack Processors to modded habitats |
@@ -38,14 +38,14 @@ Contracts use ChatterBox BEHAVIOUR nodes for character-driven dialogue with six 
 ### Contract Progression
 
 ```
-Day 1: FirstScience (any science) + FirstRover + Kerbin_Monolith (anomaly)
+Day 1: FirstScience (any science) → RoverMonolith + FlyToIsland
   ├─► UnmannedSuborbital (probe to space)
   │     ├─► UnmannedOrbit → FirstRelay → RelayConstellation
   │     │     └─► ProbeFlyby → ProbeOrbit → ProbeLanding (per body)
-  │     └─► CrewedSuborbital (also needs CrewedUpperAtmo)
+  │     └─► CrewedUpperAtmo → CrewedSuborbital
   │           └─► CrewedHomeOrbit → CrewedFlyby → CrewedOrbit → CrewedLanding
-  └─► FirstFlight → SoundBarrier → Mach3 → Hypersonic
-        ├─► IslandHop → KS_Batch1 (4 bases)
+  └─► FlyToIsland → SoundBarrier → Mach3 → Hypersonic
+        ├─► KS_Batch1 (4 bases)
         ├─► SoundBarrier → KS_Batch2 (4 bases)
         ├─► Mach3 → KS_Batch3 (4 bases)
         ├─► Hypersonic → KS_Batch4 (7 bases)
@@ -61,7 +61,7 @@ See `BadgKatCareer.ckan` for the full dependency tree.
 
 ## Mod List
 
-The full categorized mod list with ~163 mods is maintained in `modlist-categorized.md` at the KSP install root. Categories:
+The full categorized mod list with ~173 mods is maintained in `modlist-categorized.md` at the KSP install root. Categories:
 
 - **Dependencies / Utilities** — libraries and frameworks everything else needs
 - **QoL** — autopilot, planning tools, VAB organization, UI improvements
@@ -88,6 +88,7 @@ These mods are required — BadgKatCareer will not function without them:
 | ChatterBox | Dialogue system used in contract BEHAVIOURs |
 | Research Bodies | Planet discovery mechanic, referenced in contracts |
 | Snacks | Life support system, integrated via patches |
+| KAX (Kerbal Aircraft Expansion) | Provides prop engines for early aviation path |
 
 ### Planet Packs (Soft Required)
 

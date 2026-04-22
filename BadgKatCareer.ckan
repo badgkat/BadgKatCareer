@@ -19,7 +19,8 @@
 		{ "name": "ResearchBodies" },
 		{ "name": "ContractConfigurator" },
 		{ "name": "ChatterBox" },
-		{ "name": "Snacks" }
+		{ "name": "Snacks" },
+		{ "name": "KerbalAircraftExpansion" }
 	],
 
 	"recommends": [
@@ -75,10 +76,11 @@
 		{ "name": "EnhancedAstronautComplex" },
 		{ "name": "KerbalGenerations" },
 		{ "name": "KerbalsGetOld" },
-		{ "name": "SimpleConstruction" },
-		{ "name": "KSPPartVolume" },
+		{ "name": "KourageousTourists" },
+		{ "name": "ExtraPlanetaryLaunchpads" },
+		{ "name": "KerbalColonies" },
+		{ "name": "Paraterraforming" },
 
-		{ "name": "FerramAerospaceResearchContinued" },
 		{ "name": "RealChute" },
 		{ "name": "G-Effects" },
 
@@ -97,9 +99,9 @@
 		{ "name": "KerbalKonstructs" },
 		{ "name": "KerbinSideRemastered" },
 		{ "name": "BonVoyage" },
-		{ "name": "WalkAbout" },
 		{ "name": "BackgroundResourceProcessing" },
 		{ "name": "FinalFrontier" },
+		{ "name": "PhysicsRangeExtender" },
 
 		{ "name": "KerbalJointReinforcement-Continued" },
 		{ "name": "KSPCommunityFixes" },
@@ -112,7 +114,9 @@
 		{ "name": "TrackingStationEvolved" },
 		{ "name": "WaypointManager" },
 		{ "name": "CustomBarnKit" },
-		{ "name": "CustomPreLaunchChecks" }
+		{ "name": "CustomPreLaunchChecks" },
+		{ "name": "StoreMyReports" },
+		{ "name": "AlarmEnhancements" }
 	],
 
 	"suggests": [
@@ -134,6 +138,8 @@
 		{ "name": "Chatterer" },
 		{ "name": "TUFX" },
 		{ "name": "Deferred" },
-		{ "name": "Singularity" }
+		{ "name": "Singularity" },
+		{ "name": "AvalanchePlumes" },
+		{ "name": "JetSoundsContinued" }
 	]
 }
