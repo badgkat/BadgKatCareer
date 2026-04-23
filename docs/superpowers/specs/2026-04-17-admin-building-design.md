@@ -1,3 +1,15 @@
+> **⚠️ SUPERSEDED — 2026-04-23**
+>
+> This spec has been superseded by:
+> - [`2026-04-23-campaign-kit-design.md`](2026-04-23-campaign-kit-design.md) — KerbalCampaignKit (new mod, extracted from the original Director design)
+> - [`2026-04-23-director-career-redesign.md`](2026-04-23-director-career-redesign.md) — revised Director + Career spec
+>
+> **What changed:** KerbalDialogueKit shipped (v0.1.0) after this spec was written. With KDK's flag store, scene enqueue, and choice capture in hand, much of this spec's data model (ChoiceHistory, effect classes, milestone directive as a first-class concept, StoryReleaseRequirement) collapses into lower-level primitives. A new utility — `KerbalCampaignKit` — was factored out to own chapter state, event→action triggers, the reputation economy, and notification APIs. Director shrinks to UI + conventions over that stack.
+>
+> Retained for historical record. Do not implement from this document.
+
+---
+
 # BadgKatDirector + BadgKatCareer — Admin Building & Campaign Integration
 
 Replace the stock Administration Building strategy system with a character-driven program management layer. This spec covers two mods: a generic framework (**BadgKatDirector**) and the specific campaign content that uses it (**BadgKatCareer**).
