@@ -17,7 +17,7 @@ KAK is a **configurable admin-building replacement**. Content mods declare chara
 - **Per-feature activation.** Each UI section and hook checks for its cfg. No characters → no character panel. No memos → no memo section. No `DIRECTOR_PR_CAMPAIGN` → no PR button.
 - **Economy math belongs to KCK.** KAK displays rep tier / gate / monthly income by reading `CampaignKit.Reputation.*`. The only direct economy action is PR Campaign, which calls KCK's public API.
 - **Dialogue belongs to KDK.** Clicking any character chip or overlay chip enqueues a KDK scene id. KAK never renders a dialogue popup — that's ChatterBox's job via KDK.
-- **Themeable at the chip level.** Every character and every notification glyph can be skinned via cfg (`portraitTexture`, `textureUrl`, color, tint). Defaults ship; content overrides piecewise.
+- **Themeable at the chip level.** Every character chip is built from stacked `CHIP_LAYER` PNG layers (or falls back to a color swatch). Per-building overlays can override the chip layer stack for a facility-specific look. Notification glyphs are skinnable via `DIRECTOR_NOTIFICATION_STYLE`. Defaults ship; content overrides piecewise.
 
 ## Dependencies
 
@@ -71,8 +71,12 @@ DIRECTOR_CHARACTER
     role = Chief Scientist
     baseColor = #FF82B4E8
 
-    // Optional visual overrides
-    portraitTexture = BadgKatCareer/Art/wernher.png
+    // Optional chip layers — drawn in cfg order (first = back, last = front).
+    // If no CHIP_LAYER blocks, chip renders as a filled baseColor swatch.
+    CHIP_LAYER { textureUrl = BadgKatCareer/Art/chip_frame }
+    CHIP_LAYER { textureUrl = BadgKatCareer/Art/wernher_portrait; tintWithDisposition = true }
+    CHIP_LAYER { textureUrl = BadgKatCareer/Art/wernher_badge; rect = 0.7, 0.0, 0.3, 0.3 }
+
     chipShape = square
 
     // Optional click-to-scene
@@ -91,8 +95,14 @@ DIRECTOR_CHARACTER
 Fields:
 
 - `id` — required, unique per character.
-- `displayName`, `role`, `baseColor` — required for default chip rendering.
-- `portraitTexture` — optional `GameDatabase` URL. If set, chip renders the texture with disposition tint overlay; else renders a filled `baseColor` rectangle.
+- `displayName`, `role`, `baseColor` — required. `baseColor` is used for the color-swatch fallback and for deriving default disposition tints.
+- `CHIP_LAYER` blocks — optional, repeatable. Each layer:
+  - `textureUrl` — required, `GameDatabase` URL of a PNG.
+  - `rect` — optional. Normalized [x, y, width, height] in chip space where (0,0) is bottom-left and (1,1) is top-right. Default `0, 0, 1, 1` (fills the chip). Supports corner badges, half-height foregrounds, etc.
+  - `tintWithDisposition` — optional bool, default `false`. If `true`, the disposition color tints this layer (multiplicative overlay). Typically set only on the portrait layer so backgrounds and foreground badges stay neutral.
+- **Rendering rules:**
+  - No `CHIP_LAYER` blocks → filled `baseColor` rectangle with full-chip disposition tint (the color-swatch fallback).
+  - One or more `CHIP_LAYER` blocks → layers draw in cfg order, back to front. Only layers with `tintWithDisposition = true` receive the tint. A layer whose texture fails to load is skipped with a one-time log warning; remaining layers continue.
 - `chipShape` — reserved for v0.2; v0.1 always renders square rounded-corner.
 - `onClickScene` — optional KDK scene id. If set, clicking the chip fires `DialogueKit.EnqueueById(onClickScene)`.
 - `dispositionFlag` — KDK flag KAK reads for the disposition label and tint.
@@ -247,11 +257,12 @@ All IMGUI windows wrap `ClickThroughBlocker.GUILayoutWindow` to prevent click le
 
 Per character, repeated in the left column:
 
-1. Rectangle rendered as either the character's `baseColor` fill or `portraitTexture` (if set).
-2. Disposition tint overlay on top (from `DISPOSITION_TINT` or derived from `baseColor`).
-3. Name (line 1), role (line 2), disposition label (line 3), current focus title (line 4, if focus set).
-4. Outline pulse when `CampaignKit.Notifications.Highest("character." + id)` returns non-null. Pulse intensity by severity.
-5. Click behavior:
+1. Chip visual composition:
+   - If the character has no `CHIP_LAYER` blocks → fill the chip rectangle with `baseColor`, then apply disposition tint.
+   - If one or more `CHIP_LAYER` blocks → draw each layer in cfg order (back to front) at its `rect` (default full chip). Layers with `tintWithDisposition = true` get the disposition tint; others render unmodified.
+2. Text block below the visual: name (line 1), role (line 2), disposition label (line 3), current focus title (line 4, if focus set).
+3. Outline pulse when `CampaignKit.Notifications.Highest("character." + id)` returns non-null. Pulse intensity by severity.
+4. Click behavior:
    - If character has any focuses → open focus picker modal.
    - Else if `onClickScene` set → fire `DialogueKit.EnqueueById(onClickScene)`.
    - Else → no action.
@@ -320,10 +331,15 @@ DIRECTOR_BUILDING_SCENE
     facility = MissionControl
     character = gene
     onClickScene = gene_mc_status_briefing
+
+    // Optional: override the character's default chip layers just for this overlay.
+    // Same CHIP_LAYER semantics as DIRECTOR_CHARACTER. If omitted, the character's
+    // default layers render here.
+    CHIP_LAYER { textureUrl = BadgKatCareer/Art/gene_mc_icon }
 }
 ```
 
-Multiple entries per facility allowed — each renders its own chip in the corner panel.
+Multiple entries per facility allowed — each renders its own chip in the corner panel. Per-entry `CHIP_LAYER` blocks let content show a different look in MC (compact icon) vs. admin (full portrait) for the same character.
 
 ### Overlay Implementation
 

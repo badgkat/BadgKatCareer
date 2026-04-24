@@ -63,7 +63,7 @@ Key framework properties (content authors need to know):
 - **Inert without content.** Install KAK with no `DIRECTOR_*` cfg and nothing changes. Stock admin, stock MessageSystem, stock KSC view all work normally.
 - **Opt-in admin takeover.** Content must set `KERBAL_ADMIN_KIT { replaceAdminBuilding = true }` for KAK to intercept the admin click. Without it, KSC markers / overlays / stock-mail memos activate but admin stays stock.
 - **Per-feature degradation.** UI sections render only if relevant cfg is present. Missing `DIRECTOR_CHARACTER` cfg → no character panel. Missing `DIRECTOR_MEMO` → no memo section. Etc.
-- **Chip rendering is themeable.** `DIRECTOR_CHARACTER` can optionally set `portraitTexture` for a custom image; otherwise a color-swatch chip is rendered. KSC notification glyphs are skinnable via `DIRECTOR_NOTIFICATION_STYLE`.
+- **Chip rendering is themeable and layered.** `DIRECTOR_CHARACTER` can stack one or more `CHIP_LAYER { textureUrl = ... }` blocks for composed chips (e.g., background frame + portrait + corner badge). Without any layers, chip falls back to a color-swatch. Building overlays can override the chip stack for facility-specific looks. KSC notification glyphs are skinnable via `DIRECTOR_NOTIFICATION_STYLE`.
 - **Memos can mirror to stock mail** via `postToStockMail = true` so the player gets mailbox pings mid-flight.
 
 Everything a content mod hooks into:
@@ -101,7 +101,7 @@ Six `DIRECTOR_CHARACTER` entries in `BadgKatCareer/DirectorContent/Characters.cf
 | Walt | PR, reputation | `Strategy_PRGuy` | `#FFC8A0E8` |
 | Linus | Signals, anomalies | `Strategy_ScienceGuy` | `#FF6ED4C8` |
 
-v0.1 ships color-swatch chips (no PNG portraits). Portrait artwork can be added later by dropping PNGs into `BadgKatCareer/Art/` and setting `portraitTexture` on each `DIRECTOR_CHARACTER`. Existing character colors remain the chip fill color.
+v0.1 ships color-swatch chips (no PNG portraits). Portrait artwork can be added later by dropping PNGs into `BadgKatCareer/Art/` and adding `CHIP_LAYER` blocks to each `DIRECTOR_CHARACTER` (e.g., a shared frame background + per-character portrait + optional badge). Existing character colors remain the fallback fill color when no layers are defined.
 
 ## Chapter Map
 
