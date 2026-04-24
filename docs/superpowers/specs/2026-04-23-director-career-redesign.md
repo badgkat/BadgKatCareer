@@ -1,13 +1,17 @@
-# BadgKatDirector + BadgKatCareer — Admin Building Redesign
+# KerbalAdminKit + BadgKatCareer — Admin Building Redesign
 
-Replace the stock Administration Building with a character-driven program management layer. This spec covers two mods: a generic UI + convention framework (**BadgKatDirector**) and the specific campaign content that uses it (**BadgKatCareer**).
+Replace the stock Administration Building with a character-driven program management layer. This spec covers two mods: a generic admin-building-customizer toolkit (**KerbalAdminKit**, KAK) and the specific campaign content that uses it (**BadgKatCareer**).
 
-**Supersedes:** [`2026-04-17-admin-building-design.md`](2026-04-17-admin-building-design.md). Original spec was written before KerbalDialogueKit shipped and KerbalCampaignKit was designed; most of its data model and effect classes have moved downstack. This spec re-scopes Director around what remains: UI, conventions, and character registry.
+**Supersedes:** [`2026-04-17-admin-building-design.md`](2026-04-17-admin-building-design.md). Original spec was written before KerbalDialogueKit shipped and KerbalCampaignKit was designed; most of its data model and effect classes have moved downstack.
+
+**Note on naming:** This spec previously referred to the framework mod as `BadgKatDirector`. During implementation brainstorming the scope was honestly reframed as "admin-building customizer" and the mod renamed to `KerbalAdminKit` to match the `Kerbal*Kit` stack convention. Sections below use `KerbalAdminKit` / `KAK` throughout. Older cfg nodes like `DIRECTOR_CHARACTER`, `DIRECTOR_FOCUS`, `DIRECTOR_MEMO`, `DIRECTOR_BUILDING_SCENE`, `DIRECTOR_PR_CAMPAIGN`, `DIRECTOR_NOTIFICATION_STYLE`, and `DIRECTOR_KSC_MARKER_OFFSET` keep their names for continuity (content authoring stays stable across the rename). A new top-level `KERBAL_ADMIN_KIT` settings block is introduced for mod-level toggles.
+
+**Detailed KAK design:** [`2026-04-23-admin-kit-design.md`](2026-04-23-admin-kit-design.md). This spec provides the stack overview and BadgKatCareer content plan; the KAK spec covers framework internals.
 
 ## The Four-Mod Stack
 
 ```
-BadgKatCareer ─→ BadgKatDirector ─→ KerbalCampaignKit ─→ KerbalDialogueKit ─→ ChatterBox
+BadgKatCareer ─→ KerbalAdminKit ─→ KerbalCampaignKit ─→ KerbalDialogueKit ─→ ChatterBox
              └─→ KerbalCampaignKit (contract gating)
              └─→ KerbalDialogueKit (contract dialogue)
 ```
@@ -15,15 +19,15 @@ BadgKatCareer ─→ BadgKatDirector ─→ KerbalCampaignKit ─→ KerbalDialo
 | Mod | Responsibility |
 |---|---|
 | **KerbalDialogueKit** (shipped v0.1.0) | Dialogue rendering, flags, choice capture, scene definitions |
-| **KerbalCampaignKit** (Phase 1) | Chapters, event→action triggers, reputation economy, notification data API, CC REQUIREMENT types |
-| **BadgKatDirector** (Phase 2) | Character registry, focus registry, memo pipeline, admin building UI, per-building character overlays, notification renderer, PR campaign action, disposition decay cfg convenience |
+| **KerbalCampaignKit** (shipped v0.1.0) | Chapters, event→action triggers, reputation economy, notification data API, CC REQUIREMENT types |
+| **KerbalAdminKit** (Phase 2) | Admin-building UI replacement, character / focus / memo registries, per-building character overlays, KSC notification renderer, PR campaign action, disposition decay cfg convenience. Inert without content cfg; opt-in admin takeover via `KERBAL_ADMIN_KIT { replaceAdminBuilding = true }`. |
 | **BadgKatCareer** (Phase 3) | Campaign-specific content: 6 characters, 5-act chapter map, focuses, memos, scenes, rep tuning, chapter-gating on existing contracts |
 
-See [`2026-04-23-campaign-kit-design.md`](2026-04-23-campaign-kit-design.md) for the CampaignKit spec.
+See [`2026-04-23-campaign-kit-design.md`](2026-04-23-campaign-kit-design.md) for the CampaignKit spec and [`2026-04-23-admin-kit-design.md`](2026-04-23-admin-kit-design.md) for the KAK spec.
 
 ## Scope Shift From Original Spec
 
-What the original spec put in Director but we've moved downstack:
+What the original spec put in the framework mod but we've moved downstack:
 
 | Original concept | Now lives as |
 |---|---|
@@ -34,465 +38,55 @@ What the original spec put in Director but we've moved downstack:
 | Effect classes (ContractWeightModifier, FundInjection, etc.) | CampaignKit trigger actions |
 | StoryReleaseRequirement | CampaignKit's `FlagEquals` CC REQUIREMENT |
 | DirectiveContract | Cfg pattern: trigger + KDK scene with choice; no special contract type |
-| Reputation economy math | CampaignKit (Director just reads API for display) |
+| Reputation economy math | CampaignKit (KAK just reads API for display) |
 | "Effect layer" architecture | Collapses into CampaignKit's trigger action types |
 
-What stays in Director:
+What stays in KAK:
 
-1. **UI framework** — admin building replacement, per-building character overlays, KSC notification renderer
+1. **UI framework** — opt-in admin building replacement, per-building character overlays, KSC notification renderer
 2. **Character registry** — `DIRECTOR_CHARACTER` cfg, disposition flag conventions
 3. **Focus registry** — `DIRECTOR_FOCUS` cfg, picker UI
-4. **Memo pipeline** — `DIRECTOR_MEMO` cfg with game-state conditions
+4. **Memo pipeline** — `DIRECTOR_MEMO` cfg with game-state conditions, optional stock-mail mirroring
 5. **Disposition decay** — `DISPOSITION_DECAY` cfg that compiles to CampaignKit time-triggers
-6. **PR campaign action** — specific gameplay action tied to admin UI
+6. **PR campaign action** — specific gameplay action tied to admin desk
 
-Director's C# codebase is ~60% smaller than the original spec implied.
+KAK's C# codebase is ~60% smaller than the original Director spec implied, and activates lazily so an install without content cfg leaves stock KSP untouched.
 
 ---
 
-# Part 1: BadgKatDirector (Framework)
+# Part 1: KerbalAdminKit (Framework)
 
-Generic. Any consumer mod can ship its own cast, focuses, memos, and admin UI text on top.
+KAK is a standalone mod that customizes the KSP Administration Building when content mods supply the cfg for it. Full framework detail — activation model, cfg formats, UI layout, per-building overlays, KSC notification renderer, disposition decay compiler, save structure, build layout, theming, v0.2 expansion — lives in [`2026-04-23-admin-kit-design.md`](2026-04-23-admin-kit-design.md).
 
-## Design Philosophy
+Key framework properties (content authors need to know):
 
-Director provides **UI + conventions** over CampaignKit/KDK state. Every piece of data Director cares about is a KDK flag or CampaignKit chapter state; Director just knows how to render it.
+- **Inert without content.** Install KAK with no `DIRECTOR_*` cfg and nothing changes. Stock admin, stock MessageSystem, stock KSC view all work normally.
+- **Opt-in admin takeover.** Content must set `KERBAL_ADMIN_KIT { replaceAdminBuilding = true }` for KAK to intercept the admin click. Without it, KSC markers / overlays / stock-mail memos activate but admin stays stock.
+- **Per-feature degradation.** UI sections render only if relevant cfg is present. Missing `DIRECTOR_CHARACTER` cfg → no character panel. Missing `DIRECTOR_MEMO` → no memo section. Etc.
+- **Chip rendering is themeable.** `DIRECTOR_CHARACTER` can optionally set `portraitTexture` for a custom image; otherwise a color-swatch chip is rendered. KSC notification glyphs are skinnable via `DIRECTOR_NOTIFICATION_STYLE`.
+- **Memos can mirror to stock mail** via `postToStockMail = true` so the player gets mailbox pings mid-flight.
 
-This means:
+Everything a content mod hooks into:
 
-- Disposition is a flag — Director reads it for portrait tinting, CampaignKit triggers write it
-- Focus is a flag — Director's picker UI writes it, contracts gate on it via `FlagEquals`
-- Memory is flag history — Director doesn't maintain a separate memory list; content reads flags directly
-- "Milestone directive" is not a Director class — it's a cfg pattern: chapter-entry trigger that enqueues a KDK scene with a choice. Director doesn't know or care.
-
-## Dependencies
-
-- KerbalCampaignKit >= 0.1.0
-- KerbalDialogueKit >= 0.1.0
-- CustomBarnKit (admin building UI replacement, facility-level gating)
-- KSP 1.12.x
-
-## Character Registry
-
-### Character Definition
-
-```cfg
-DIRECTOR_CHARACTER
-{
-    id = wernher
-    displayName = Wernher von Kerman
-    role = Chief Scientist
-    portraitModel = Instructor_Wernher
-    baseColor = #FF82B4E8
-
-    // Convention: Director reads disposition from this flag
-    dispositionFlag = wernher_disposition
-    defaultDisposition = Neutral
-
-    // Optional: buildings where this character appears as an overlay
-    buildings = Administration, RD, TrackingStation
-}
-```
-
-### Disposition Values
-
-Standard values: `Enthusiastic`, `Supportive`, `Neutral`, `Skeptical`, `Frustrated`. Content can define custom values; Director's UI treats unknown values as Neutral (with a log warning).
-
-Each disposition has a default UI tint derived from the character's `baseColor` — Enthusiastic brightens, Frustrated desaturates, etc. Content can override per-character tints:
-
-```cfg
-DIRECTOR_CHARACTER
-{
-    id = wernher
-    ...
-    DISPOSITION_TINT { value = Enthusiastic; color = #FFA0D4FF }
-    DISPOSITION_TINT { value = Frustrated;   color = #FF4E6E8A }
-}
-```
-
-### Character API (C#)
-
-```csharp
-Director.Characters.Get("wernher");                  // CharacterInfo
-Director.Characters.GetDisposition("wernher");       // string — reads KDK flag
-Director.Characters.All;                              // enumerable
-```
-
-Directory-level is a thin facade; all mutation goes through `DialogueKit.Flags.Set` (typically from CampaignKit triggers).
-
-## Focus Registry
-
-### Focus Definition
-
-```cfg
-DIRECTOR_FOCUS
-{
-    character = wernher
-    id = deep_space_signals
-    title = Deep Space Signals
-    description = Wernher focuses on tracking the anomaly signals.
-
-    // Optional: when this focus is unlocked
-    requirement = chapter >= 3 && completed_first_anomaly == true
-
-    // Convention: Director writes to this flag on selection
-    flag = wernher_focus
-    flagValue = deep_space_signals
-}
-```
-
-`requirement` reuses KDK's `FlagExpressionParser`. Focuses with unmet requirements don't appear in the picker.
-
-Focus effects (contract weight modifiers, science bonuses, etc.) are not defined here — they're expressed as CampaignKit triggers or contract REQUIREMENTs that read `wernher_focus`. Director's job is UI + flag management; downstream mechanical effect is content's responsibility.
-
-### Focus Picker UI
-
-Character panel in admin building shows current focus per character. Clicking a character portrait opens a picker with all valid `DIRECTOR_FOCUS` entries for that character. Selecting sets the flag and closes the picker.
-
-No "save" button — focus changes apply immediately. They can be changed any time (A-layer promise from original spec).
-
-## Memo Pipeline
-
-Memos are short character notes surfaced in the admin UI desk panel, driven by game state.
-
-### Memo Definition
-
-```cfg
-DIRECTOR_MEMO
-{
-    character = gus
-    id = relay_aging
-    priority = low                     // low, normal, high
-    text = That relay is getting old. Might want to think about upgrades before something breaks.
-
-    CONDITION
-    {
-        type = VesselAge
-        vesselType = Relay
-        minDays = 200
-    }
-
-    // Optional: memo expires
-    expireAfterDays = 60
-    // Optional: don't re-show if dismissed
-    suppressAfterDismiss = true
-}
-```
-
-### Condition Types (Phase 1)
-
-| Type | Parameters |
+| cfg node | purpose |
 |---|---|
-| `VesselAge` | `vesselType?`, `minDays`, `maxDays?` |
-| `FundsBelow` | `threshold` |
-| `ReputationBelow` | `threshold` |
-| `ReputationAbove` | `threshold` |
-| `ContractAvailable` | `group?`, `count?` |
-| `BodyDiscovered` | `body?` (ResearchBodies soft) |
-| `InChapter` | `chapter` |
-| `FlagExpression` | `expression` |
-| `TimeSinceEvent` | `event`, `minDays` |
+| `KERBAL_ADMIN_KIT` | mod-level toggles (replaceAdminBuilding, deskMemoCount, memoPollSeconds) |
+| `DIRECTOR_CHARACTER` | character registry entry (+ optional portrait, dispositions) |
+| `DIRECTOR_FOCUS` | focus registry entry |
+| `DIRECTOR_MEMO` | memo definition with conditions |
+| `DIRECTOR_BUILDING_SCENE` | per-building overlay chip |
+| `DIRECTOR_NOTIFICATION_STYLE` | KSC marker glyph skin |
+| `DIRECTOR_KSC_MARKER_OFFSET` | per-building marker pixel offset |
+| `DIRECTOR_PR_CAMPAIGN` | PR Campaign button configuration |
+| `DISPOSITION_DECAY` | compiles to KCK time-triggers at load |
 
-Multiple `CONDITION` blocks AND together.
-
-### Memo Evaluation
-
-A `MemoTicker` polls active memos every few seconds (lightweight — just condition checks). Active memos queue into a display list sorted by priority then recency. The admin UI's desk panel renders the top N (configurable; default 5).
-
-### Memo API
-
-```csharp
-Director.Memos.Active;                  // enumerable of active Memo
-Director.Memos.Dismiss("relay_aging");  // hide until suppression clears
-Director.Memos.Pinned;                  // memos with high priority, always visible
-```
-
-## Disposition Decay
-
-A cfg-driven convenience that compiles to CampaignKit time-triggers at load.
-
-### Disposition Decay Definition
-
-```cfg
-DISPOSITION_DECAY
-{
-    character = wernher
-    towardValue = Neutral
-    stepDays = 180
-
-    STEP { from = Enthusiastic; to = Supportive }
-    STEP { from = Supportive;   to = Neutral }
-    STEP { from = Frustrated;   to = Skeptical }
-    STEP { from = Skeptical;    to = Neutral }
-}
-```
-
-Director loads these at startup and generates equivalent CampaignKit triggers:
-
-```cfg
-CAMPAIGN_TRIGGER
-{
-    id = disposition_decay_wernher_Enthusiastic_to_Supportive
-    ON_EVENT { type = TimeElapsed; days = 180; ref = LastTrigger }
-    WHEN { flagExpression = wernher_disposition == Enthusiastic }
-    ACTIONS { SET_FLAG { name = wernher_disposition; value = Supportive } }
-    once = false
-}
-```
-
-Content can optionally ship no `DISPOSITION_DECAY` — dispositions then stay sticky until content explicitly shifts them.
-
-## Admin Building UI — Layered Design
-
-### Layout
-
-```
-┌──────────────┬──────────────────────────┬─────────────────┐
-│  CHARACTERS  │     DASHBOARD / SCENE    │       DESK      │
-│              │                          │                 │
-│  [Gene]      │  (when nothing pending)  │  Story Contracts│
-│  Supportive  │                          │  ─────────────  │
-│              │  Program Status          │  ☐ Mun Probe    │
-│  [Wernher]   │  Current Chapter: 3      │  ☐ Mun Anomaly  │
-│  Enthusiastic│  Reputation: 312         │                 │
-│              │  ████████░░ Respected    │  Memos          │
-│  [Gus]       │  Monthly Income: 32,000  │  ─────────────  │
-│  Neutral     │  Next Chapter: after     │  Gus: relay     │
-│              │    Duna probe flyby      │     aging       │
-│  [Mortimer]  │                          │  Walt: need     │
-│  Neutral     │  Active Focuses          │     a headline  │
-│              │  ─────────────           │                 │
-│  [Walt]      │  Wernher: deep signals   │  [PR Campaign]  │
-│  Supportive  │  Gus: launch infra       │                 │
-│              │  Linus: signal analysis  │                 │
-│  [Linus]     │                          │                 │
-│  Enthusiastic│                          │                 │
-└──────────────┴──────────────────────────┴─────────────────┘
-```
-
-Three panels: **Characters**, **Dashboard/Scene**, **Desk**. Dashboard center can switch to scene rendering when KDK is playing a scene — KDK renders in a modal overlay, Director dims the dashboard behind it.
-
-### Layered Behavior (option D from brainstorming)
-
-On admin entry:
-
-1. **Scene layer (if pending).** CampaignKit has pending scenes flagged `OnFacilityEnter = Administration` — these auto-enqueue to KDK. Scene plays immediately. The dashboard is backdrop.
-2. **Dashboard layer (always).** Program status, rep, focuses. Always visible as the room's baseline state.
-3. **Desk layer (always).** Pending memos and story contracts pile up. Player processes at leisure.
-4. **Notification layer.** Desk items with pending `action` notifications glow. Character portraits with pending `info` notifications get a subtle dot.
-
-No "modes." The same screen has layered content; the foreground varies by what's pending.
-
-### Character Panel
-
-- Character portraits vertically stacked (6 for BadgKatCareer)
-- Current disposition shown as tinted overlay + text label
-- Current focus shown below name (if any)
-- Click portrait → focus picker modal
-- Right-click portrait → character scene (if content provides an on-demand scene id for that character, otherwise nothing)
-
-### Program Status Panel
-
-- Chapter name + description
-- Current reputation value + tier label + progress to next tier
-- Monthly passive income (if `REPUTATION_INCOME` configured)
-- Next gate (if any) — queried from `CampaignKit.Reputation.NextGate()`
-- Next chapter condition (from CampaignKit chapter state)
-- Active focuses list
-
-### Desk Panel
-
-- Pending story contracts — contracts marked with a "story contract" flag that originate from admin rather than MC. Clicking opens a KDK pitch scene. Accepting activates the contract in CC.
-- Memos — sorted by priority. Each memo dismissable.
-- PR Campaign button (if content defines the action) — costs funds, halts decay, small rep bump.
-
-### Stock UI Replacement
-
-- MM patch disables stock strategies (already in BadgKatCareer)
-- Director's UI replaces the admin building scene via CustomBarnKit integration
-- Leaving admin returns to KSC normally
-
-## Per-Building Character Overlays
-
-### Phase 1 Buildings
-
-Three buildings get overlays in Phase 1:
-
-- **Administration** — full UI (above)
-- **Mission Control** — light overlay: Gene's portrait in a corner panel, click for a scene about current mission status. Respects MC's existing contract UI (not replaced).
-- **Tracking Station** — light overlay: Linus's portrait, click for scenes about anomaly signals or body discoveries. Doesn't replace tracking's vessel list or ResearchBodies observatory.
-
-### Overlay Pattern
-
-Each overlay is a small `KSPAddon(Startup.Flight)` MonoBehaviour (or equivalent per-scene) that:
-
-1. Registers for the relevant facility scene (e.g., `MissionControl`)
-2. Draws a small IMGUI corner panel with one or more character portraits
-3. Each portrait shows its disposition tint
-4. Clicking triggers a KDK scene (scene id determined by content via `DIRECTOR_BUILDING_SCENE` cfg)
-5. Notification markers from CampaignKit appear as glows on portraits
-
-```cfg
-DIRECTOR_BUILDING_SCENE
-{
-    facility = MissionControl
-    character = gene
-    // When player clicks Gene's portrait in MC, this scene enqueues:
-    onClickScene = gene_mc_briefing
-    // Optional: show notification when any condition is met
-    NOTIFICATION
-    {
-        severity = info
-        source = gene_mc_briefing
-        condition = chapter_transition_pending == true
-    }
-}
-```
-
-### Future Buildings (Phase 4)
-
-- **R&D** — Wernher overlay
-- **VAB/SPH** — Gus overlay
-- **Astronaut Complex** — Walt overlay
-
-Same overlay pattern. Deferred to Phase 4 because they're value-add rather than load-bearing for the BadgKatCareer narrative.
-
-## KSC Notification Renderer
-
-A `KSPAddon(KSPAddon.Startup.SpaceCentre)` MonoBehaviour renders CampaignKit notification markers over KSC buildings.
-
-### Rendering Logic
-
-Each frame:
-
-1. For each KSC building (Admin, MC, Tracking, R&D, VAB, SPH, Astronaut):
-   - Query `CampaignKit.Notifications.Highest("<building-target>")`
-   - If Action → draw prominent marker (exclamation + pulse)
-   - Else if Info → draw subtle marker (dot)
-   - Else → nothing
-2. Position markers using `Camera.main.WorldToScreenPoint(building.transform.position)` with fixed offset
-3. Subscribe to `CampaignKitEvents.OnNotificationAdded/Cleared` to skip polling when nothing changed
-
-### Notification Targets
-
-Convention: the first path segment of a notification target is the building:
-
-- `admin`, `admin.desk.contracts` → Admin marker
-- `mc`, `mc.contracts` → Mission Control marker
-- `tracking`, `tracking.signals` → Tracking Station marker
-- `rd` → R&D marker
-- `vab`, `sph` → VAB/SPH markers
-- `astronaut` → Astronaut Complex marker
-- `character.*` → wherever that character is on-screen (handled by building overlays, not KSC renderer)
-
-## PR Campaign Action
-
-The one bespoke gameplay action Director provides.
-
-```cfg
-DIRECTOR_PR_CAMPAIGN
-{
-    // Cost formula: base + (currentRepTier * tierMultiplier)
-    baseCost = 50000
-    tierCostMultiplier = 25000
-
-    // Effects
-    haltDecayDays = 60
-    repBonus = 10
-}
-```
-
-Rendered as a button in the admin desk panel. Clicking shows confirmation with cost. On confirm:
-
-- `ADJUST_FUNDS { amount = -cost }`
-- `CampaignKit.Reputation.HaltDecay(days: 60)`
-- `ADJUST_REPUTATION { amount = 10 }`
-
-Content mods can skip this by not defining `DIRECTOR_PR_CAMPAIGN`.
-
-## Save Structure
-
-Director's save state is minimal — most of what Director renders lives in KDK flags and CampaignKit state.
-
-```cfg
-SCENARIO
-{
-    name = DirectorScenario
-
-    // Dismissed memos (so they don't re-show)
-    DISMISSED_MEMOS
-    {
-        memo = relay_aging; dismissedAt = 1800000
-    }
-
-    // Track last time PR campaign was used, for cooldown display
-    PR_CAMPAIGN
-    {
-        lastUsedTime = 1750000
-    }
-}
-```
-
-## Plugin Structure
-
-```
-BadgKatDirector/
-├── Core/
-│   ├── Director.cs                 // Public static API
-│   ├── DirectorScenario.cs         // Dismissed memos, PR cooldown
-│   └── DirectorAddon.cs            // Loads cfg, compiles disposition decay, wires UI
-│
-├── Characters/
-│   ├── CharacterInfo.cs
-│   ├── CharacterRegistry.cs        // Loads DIRECTOR_CHARACTER
-│   └── DispositionColors.cs        // Tint derivation + overrides
-│
-├── Focuses/
-│   ├── FocusOption.cs
-│   ├── FocusRegistry.cs
-│   └── FocusPicker.cs              // Picker modal UI
-│
-├── Memos/
-│   ├── Memo.cs
-│   ├── MemoRegistry.cs
-│   ├── MemoConditions/
-│   │   ├── IMemoCondition.cs
-│   │   ├── VesselAgeCondition.cs
-│   │   ├── FundsBelowCondition.cs
-│   │   ├── ReputationCondition.cs
-│   │   ├── ContractAvailableCondition.cs
-│   │   ├── BodyDiscoveredCondition.cs
-│   │   ├── InChapterCondition.cs
-│   │   └── FlagExpressionCondition.cs
-│   └── MemoTicker.cs               // Periodic evaluation
-│
-├── DecayCompiler/
-│   └── DispositionDecayCompiler.cs // DISPOSITION_DECAY → CampaignKit triggers
-│
-├── Admin/
-│   ├── AdminBuildingUI.cs          // KSPAddon, replaces stock admin screen
-│   ├── CharacterPanel.cs
-│   ├── DashboardPanel.cs
-│   ├── DeskPanel.cs
-│   └── PrCampaignButton.cs
-│
-├── BuildingOverlays/
-│   ├── BuildingOverlay.cs          // Base overlay
-│   ├── MissionControlOverlay.cs
-│   ├── TrackingStationOverlay.cs
-│   └── BuildingSceneRegistry.cs    // DIRECTOR_BUILDING_SCENE
-│
-└── KscRenderer/
-    └── KscNotificationRenderer.cs  // Markers over buildings in KSC view
-```
-
-Roughly 25-30 classes.
+All detail lives in the KAK spec. The rest of *this* spec focuses on what BadgKatCareer ships on top.
 
 ---
 
 # Part 2: BadgKatCareer (Content)
 
-All story-specific content. Additive to the existing mod — contracts stay; new Director-facing content files added.
+All story-specific content. Additive to the existing mod — contracts stay; new KAK-facing content files added under `BadgKatCareer/DirectorContent/` (folder name preserved for cfg path consistency; no rename needed).
 
 ## The Cast
 
@@ -506,6 +100,8 @@ Six `DIRECTOR_CHARACTER` entries in `BadgKatCareer/DirectorContent/Characters.cf
 | Mortimer | Budget, finance | `Strategy_Mortimer` | `#FFFFE066` |
 | Walt | PR, reputation | `Strategy_PRGuy` | `#FFC8A0E8` |
 | Linus | Signals, anomalies | `Strategy_ScienceGuy` | `#FF6ED4C8` |
+
+v0.1 ships color-swatch chips (no PNG portraits). Portrait artwork can be added later by dropping PNGs into `BadgKatCareer/Art/` and setting `portraitTexture` on each `DIRECTOR_CHARACTER`. Existing character colors remain the chip fill color.
 
 ## Chapter Map
 
@@ -523,7 +119,7 @@ Five chapters mapped to the existing campaign's five acts. Each chapter gets a `
 
 Each chapter-entry trigger (except Chapter 1) enqueues a directive KDK scene marked `OnFacilityEnter = Administration`. Player's first admin visit after the chapter changes plays the scene. Scene has 2-3 choices; choice flags feed downstream triggers.
 
-Nine directives total across the five chapters (some chapters have mid-chapter directives triggered by contract completions, not just on entry). Same map as the original spec:
+Nine directives total across the five chapters (some chapters have mid-chapter directives triggered by contract completions, not just on entry):
 
 | Chapter | Trigger | Characters | Choice Axis |
 |---|---|---|---|
@@ -561,6 +157,8 @@ Unlock requirements scale with chapter progression.
 - Linus: faint signal detected, body conjunction, Kraken sighting
 - Gene: crew ready for promotion, veteran returning, all crew grounded
 
+High-signal memos (low funds, low rep, crew ready) set `postToStockMail = true` so the player sees them mid-flight via the mailbox as well.
+
 ## Staff Meeting Scenes
 
 ~10-15 KDK scenes in `BadgKatCareer/DirectorContent/StaffMeetings/`. Triggered by CampaignKit triggers on events like first successful orbit, first crew return, major failure, each chapter transition (in addition to the directive scene).
@@ -574,10 +172,10 @@ REPUTATION_INCOME
 {
     enabled = true
     intervalDays = 30
-    TIER { min = 0;   max = 100; income = 5000 }
-    TIER { min = 100; max = 250; income = 15000 }
-    TIER { min = 250; max = 500; income = 35000 }
-    TIER { min = 500; max = 750; income = 60000 }
+    TIER { min = 0;   max = 100;  income = 5000 }
+    TIER { min = 100; max = 250;  income = 15000 }
+    TIER { min = 250; max = 500;  income = 35000 }
+    TIER { min = 500; max = 750;  income = 60000 }
     TIER { min = 750; max = 9999; income = 100000 }
 }
 
@@ -597,6 +195,8 @@ DIRECTOR_PR_CAMPAIGN
     repBonus = 10
 }
 ```
+
+(Uses multi-line KSP cfg syntax in the real file; inline `{ k = v }` is illustrative.)
 
 No `ReputationMinimum` REQUIREMENTs on BadgKatCareer contracts — chapter gating handles that. Select high-profile crewed contracts get `ReputationStake` behaviours (Duna landing, Jool mission, Kcalbeloh).
 
@@ -654,7 +254,7 @@ DIRECTOR_BUILDING_SCENE
     character = mortimer
     onClickScene = mortimer_admin_budget
 }
-// And Walt, since Walt's natural building is Admin for Phase 1
+
 DIRECTOR_BUILDING_SCENE
 {
     facility = Administration
@@ -665,30 +265,47 @@ DIRECTOR_BUILDING_SCENE
 
 These scenes can vary by chapter via `visibleIf` — a single `onClickScene` id references a scene whose lines conditionally fire based on current chapter.
 
+## Admin Activation
+
+`BadgKatCareer/DirectorContent/AdminKitSettings.cfg` sets the opt-in flag:
+
+```cfg
+KERBAL_ADMIN_KIT
+{
+    replaceAdminBuilding = true
+    deskMemoCount = 5
+    memoPollSeconds = 5
+}
+```
+
+Players who install BadgKatCareer get the full admin-replacement experience. Players who install only KAK (without BadgKatCareer or another content mod that sets the flag) keep stock admin.
+
 ---
 
 # Phasing
 
 - **Phase 0 (shipped)** — KerbalDialogueKit v0.1.0
-- **Phase 1** — KerbalCampaignKit v0.1.0 (spec in `2026-04-23-campaign-kit-design.md`). Headless, usable independently. Deliverable: chapters, triggers, rep economy, notifications, CC REQUIREMENTs.
-- **Phase 2** — BadgKatDirector v0.1.0. Character/focus/memo registries, admin building UI, Mission Control + Tracking Station overlays, KSC notification renderer, PR campaign action, disposition decay compiler.
-- **Phase 3** — BadgKatCareer content integration. 6 characters, 5 chapters, 9 directives, 18 focuses, 20 memos, 10-15 staff meetings, rep config, chapter-gate REQUIREMENTs added to existing contracts, select rep-stake tags.
-- **Phase 4** — R&D, VAB/SPH, Astronaut Complex overlays + second-pass polish.
+- **Phase 1 (shipped)** — KerbalCampaignKit v0.1.0 (spec in `2026-04-23-campaign-kit-design.md`). Headless, usable independently.
+- **Phase 2** — KerbalAdminKit v0.1.0 (spec in `2026-04-23-admin-kit-design.md`). Character/focus/memo registries, opt-in admin building UI, Mission Control + Tracking Station overlays, KSC notification renderer, PR campaign action, disposition decay compiler.
+- **Phase 3** — BadgKatCareer content integration. 6 characters, 5 chapters, 9 directives, 18 focuses, 20 memos, 10-15 staff meetings, rep config, chapter-gate REQUIREMENTs added to existing contracts, select rep-stake tags, `KERBAL_ADMIN_KIT { replaceAdminBuilding = true }`.
+- **Phase 4** — KAK v0.2: `DIRECTOR_POLICY` for long-running modifiers, action memos, directives browser, R&D / VAB / SPH / Astronaut overlays + second-pass polish.
 
-Each phase is a shippable increment. Phase 1 is usable by third-party mods without waiting for Director. Phase 2 without Phase 3 gives a playable admin building with placeholder content. Phase 3 is the first version that feels like the intended BadgKatCareer experience.
+Each phase is a shippable increment. Phase 1 is usable by third-party mods without waiting for KAK. Phase 2 without Phase 3 gives a generic admin-customizer framework (no content; stock admin untouched without cfg). Phase 3 is the first version that feels like the intended BadgKatCareer experience.
 
 ## Scope Summary
 
-**KerbalCampaignKit:**
+**KerbalCampaignKit (shipped):**
 - ~40 classes, single DLL
 - Detailed in `2026-04-23-campaign-kit-design.md`
 
-**BadgKatDirector:**
+**KerbalAdminKit (Phase 2):**
 - ~25-30 classes
-- Cfg formats: `DIRECTOR_CHARACTER`, `DIRECTOR_FOCUS`, `DIRECTOR_MEMO`, `DISPOSITION_DECAY`, `DIRECTOR_BUILDING_SCENE`, `DIRECTOR_PR_CAMPAIGN`
+- Cfg formats: `KERBAL_ADMIN_KIT`, `DIRECTOR_CHARACTER`, `DIRECTOR_FOCUS`, `DIRECTOR_MEMO`, `DIRECTOR_BUILDING_SCENE`, `DIRECTOR_NOTIFICATION_STYLE`, `DIRECTOR_KSC_MARKER_OFFSET`, `DIRECTOR_PR_CAMPAIGN`, `DISPOSITION_DECAY`
 - No campaign content — pure framework
+- Detailed in `2026-04-23-admin-kit-design.md`
 
-**BadgKatCareer additions:**
+**BadgKatCareer additions (Phase 3):**
+- 1 `KERBAL_ADMIN_KIT` settings block
 - 6 `DIRECTOR_CHARACTER`
 - 5 `CAMPAIGN_CHAPTER`
 - ~30 `CAMPAIGN_TRIGGER` (chapter entry, milestone directives, memo shifts, reputation events)
@@ -702,8 +319,10 @@ Each phase is a shippable increment. Phase 1 is usable by third-party mods witho
 - Additive `ChapterAtLeast` REQUIREMENTs on existing contracts
 - `ReputationStake` BEHAVIOURs on selected high-profile missions
 
-**Out of Scope:**
+**Out of Scope (all phases):**
 - Stock building 3D asset replacement (overlays sit on top of stock scenes)
 - Localization (all text is cfg, translation is content's concern)
 - Multiplayer/shared state (single-save, per-save state)
 - Debug/admin tooling UI (deferred to post-v0.1)
+- Live 3D portraits in KAK's own UI (ChatterBox handles 3D in dialogue popups; KAK uses flat chips)
+- Runtime cfg reload (restart required to pick up cfg changes)
